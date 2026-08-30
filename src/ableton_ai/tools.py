@@ -289,6 +289,66 @@ class Toolbox:
         result["summary"] = generators.summarise(notes)
         return result
 
+    def _reference_progression(
+        self, track_index: int, clip_index: int, bars: float
+    ) -> tuple[list[theory.Chord], float]:
+        """Chords lifted from a clip that already exists, qualities and all.
+
+        Rebuilding harmony from a degree number throws away everything that
+        makes the progression itself: a clip whose second chord is Em7 comes
+        back as E diminished, because that is what the second degree of D minor
+        is. The extension is lost too. Reading the sounding pitches keeps the
+        chord the user actually wrote, so a bass or lead generated against it
+        agrees with what is playing rather than merely sharing a key.
+        """
+        notes, clip = self._clip_notes(track_index, clip_index)
+        if not notes:
+            raise ToolError(
+                f"reference clip at track {track_index} slot {clip_index} is empty"
+            )
+        root, scale, _ = corpus.detect_key(notes)
+        events = corpus.extract_chords(notes, root, scale)
+        if not events:
+            raise ToolError(
+                f"no chords could be read from track {track_index} "
+                f"slot {clip_index}; point at a chord part"
+            )
+
+        chords = [
+            theory.Chord(
+                degree=event.degree,
+                root_pitch=min(event.pitches),
+                quality=event.quality,
+                pitches=tuple(sorted(set(event.pitches))),
+            )
+            for event in events
+        ]
+        # The reference sets the harmonic rhythm as well as the harmony. Its
+        # chords are two bars each here; assuming one per bar would put every
+        # generated part half a chord out.
+        source_bars = clip["length_beats"] / BEATS_PER_BAR
+        bars_per_chord = (source_bars or bars) / len(chords)
+        return chords, bars_per_chord
+
+    def _reference_degrees(
+        self, track_index: int, clip_index: int
+    ) -> tuple[str, str, list[int]]:
+        """Key, scale and degrees read off an existing clip."""
+        notes, _clip = self._clip_notes(track_index, clip_index)
+        if not notes:
+            raise ToolError(
+                f"reference clip at track {track_index} slot {clip_index} is empty"
+            )
+        root, scale, _ = corpus.detect_key(notes)
+        events = corpus.extract_chords(notes, root, scale)
+        degrees = [e.degree for e in events if e.degree]
+        if not degrees:
+            raise ToolError(
+                f"no progression could be read from track {track_index} "
+                f"slot {clip_index}; point at a chord part"
+            )
+        return root, scale, degrees
+
     def _progression(
         self,
         key: str,
@@ -298,7 +358,13 @@ class Toolbox:
         octave: int,
         extension: str,
         smooth: bool = True,
+        reference_track: int | None = None,
+        reference_clip: int = 0,
     ) -> tuple[list[theory.Chord], float]:
+        if reference_track is not None:
+            return self._reference_progression(
+                int(reference_track), int(reference_clip), bars
+            )
         if isinstance(degrees, str) and degrees.lower() in theory.PROGRESSIONS:
             resolved = list(theory.PROGRESSIONS[degrees.lower()])
         else:
@@ -326,10 +392,13 @@ class Toolbox:
         smooth_voicing: bool = True,
         name: str | None = None,
         seed: int | None = None,
+        reference_track: int | None = None,
+        reference_clip: int = 0,
     ) -> dict:
         """Generate a chord progression clip. Voice leading is applied automatically so the chords move smoothly instead of jumping in octaves."""
         chords, bars_per_chord = self._progression(
-            key, scale, degrees, bars, octave, extension, smooth_voicing
+            key, scale, degrees, bars, octave, extension, smooth_voicing,
+            reference_track=reference_track, reference_clip=reference_clip,
         )
         notes = generators.generate_chords(
             chords,
@@ -362,10 +431,13 @@ class Toolbox:
         humanise: float = 0.0,
         name: str | None = None,
         seed: int | None = None,
+        reference_track: int | None = None,
+        reference_clip: int = 0,
     ) -> dict:
         """Generate a bassline that follows a chord progression."""
         chords, bars_per_chord = self._progression(
-            key, scale, degrees, bars, 3, "triad"
+            key, scale, degrees, bars, 3, "triad",
+            reference_track=reference_track, reference_clip=reference_clip,
         )
         notes = generators.generate_bassline(
             chords,
@@ -898,6 +970,8 @@ class Toolbox:
         humanise: float = 0.2,
         name: str | None = None,
         seed: int | None = None,
+        reference_track: int | None = None,
+        reference_clip: int = 0,
     ) -> dict:
         """Build a bassline in a named articulation style.
 
@@ -911,7 +985,9 @@ class Toolbox:
         actual kick, which is what produces the rolling feel.
         """
         chords, bars_per_chord = self._progression(key, scale, degrees, bars, 3,
-                                                   "triad")
+                                                   "triad",
+            reference_track=reference_track, reference_clip=reference_clip,
+        )
         drum_notes = None
         if drums_track is not None:
             try:
@@ -947,6 +1023,8 @@ class Toolbox:
         groove_name: str = "straight",
         name: str | None = None,
         seed: int | None = None,
+        reference_track: int | None = None,
+        reference_clip: int = 0,
     ) -> dict:
         """Build a lead that arcs across the whole phrase.
 
@@ -957,7 +1035,9 @@ class Toolbox:
         repeating. Styles: soaring, pluck, rolling, arp_climb, call, stab.
         """
         chords, bars_per_chord = self._progression(key, scale, degrees, bars,
-                                                   octave, "triad")
+                                                   octave, "triad",
+            reference_track=reference_track, reference_clip=reference_clip,
+        )
         notes = leads.generate(
             chords, root=key, scale=scale, style=style,
             bars_per_chord=bars_per_chord, octave=octave,
@@ -987,6 +1067,8 @@ class Toolbox:
         spread: float = 0.0,
         name: str | None = None,
         seed: int | None = None,
+        reference_track: int | None = None,
+        reference_clip: int = 0,
     ) -> dict:
         """Chords with harmonic movement inside the loop.
 
@@ -1004,7 +1086,13 @@ class Toolbox:
         3rd and 7th. Deep and progressive house live on sevenths and ninths in
         open or rootless voicings; triads read as naive in those genres.
         """
-        if isinstance(degrees, str) and degrees.lower() in theory.PROGRESSIONS:
+        # A reference clip re-voices *that* progression rather than inventing
+        # one: same key, same degrees, new spacing and extensions.
+        if reference_track is not None:
+            key, scale, resolved = self._reference_degrees(
+                int(reference_track), int(reference_clip)
+            )
+        elif isinstance(degrees, str) and degrees.lower() in theory.PROGRESSIONS:
             resolved = list(theory.PROGRESSIONS[degrees.lower()])
         else:
             resolved = theory.parse_degrees(degrees)
@@ -1167,13 +1255,16 @@ class Toolbox:
         swing: float = 0.0,
         name: str | None = None,
         seed: int | None = None,
+        reference_track: int | None = None,
+        reference_clip: int = 0,
     ) -> dict:
         """Generate an arpeggio over a chord progression."""
         rates = {"1/4": 1.0, "1/8": 0.5, "1/16": 0.25, "1/32": 0.125}
         if rate not in rates:
             raise ToolError(f"rate must be one of {', '.join(rates)}")
         chords, bars_per_chord = self._progression(
-            key, scale, degrees, bars, octave, "triad"
+            key, scale, degrees, bars, octave, "triad",
+            reference_track=reference_track, reference_clip=reference_clip,
         )
         notes = generators.generate_arpeggio(
             chords,
@@ -1205,6 +1296,8 @@ class Toolbox:
         variation: str | None = None,
         name: str | None = None,
         seed: int | None = None,
+        reference_track: int | None = None,
+        reference_clip: int = 0,
     ) -> dict:
         """Write a melody with real phrase structure.
 
@@ -1238,7 +1331,9 @@ class Toolbox:
             steps = harmony.vary(resolved, scale=scale, recipe=variation, seed=seed)
             chords, durations = harmony.build(key, scale, steps, octave=3)
         else:
-            chords, _ = self._progression(key, scale, degrees, bars, 3, "triad")
+            chords, _ = self._progression(key, scale, degrees, bars, 3, "triad",
+            reference_track=reference_track, reference_clip=reference_clip,
+        )
             durations = None
 
         notes = melody.write(
@@ -1979,10 +2074,13 @@ class Toolbox:
         call_and_response: bool = True,
         name: str | None = None,
         seed: int | None = None,
+        reference_track: int | None = None,
+        reference_clip: int = 0,
     ) -> dict:
         """The top-line that carries the drop -- short, high and repetitive."""
         chords, bars_per_chord = self._progression(
-            key, scale, degrees, bars, octave, "triad"
+            key, scale, degrees, bars, octave, "triad",
+            reference_track=reference_track, reference_clip=reference_clip,
         )
         notes = generators.generate_hook(
             chords,

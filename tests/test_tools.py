@@ -815,3 +815,41 @@ def test_analyse_clip_reports_degrees(box):
     assert result["key"] == "D"
     assert result["part"] == "chords"
     assert result["degrees"], result
+
+
+def test_reference_clip_keeps_the_chord_quality(box):
+    """A degree number is not the chord. Em7 must not come back as E diminished.
+
+    The second degree of D minor is diminished, so rebuilding harmony from
+    degrees turned a clip's Em7 into Edim and every part generated against it
+    disagreed with what was actually playing.
+    """
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    box.call("create_track", {"name": "Bass", "role": "bass"})
+
+    # Dm9 then Em7 -- the Em7's B natural is what a degree lookup destroys.
+    _place(box, 0, 0, _chords([[62, 65, 69, 72, 76], [64, 67, 71, 74]]), bars=2)
+
+    chords, bars_per_chord = box._reference_progression(0, 0, bars=2)
+    assert len(chords) == 2, chords
+    assert bars_per_chord == 1.0
+    second = {p % 12 for p in chords[1].pitches}
+    assert 11 in second, f"lost the B natural: {sorted(second)}"
+
+    # And a bassline generated from it lands on those roots.
+    result = box.call("create_bass_clip", {
+        "track_index": 1, "clip_index": 0, "bars": 2, "reference_track": 0,
+    })
+    assert result.get("summary"), result
+
+
+def test_reference_clip_sets_the_harmonic_rhythm(box):
+    """Two-bar chords must not be read as one chord per bar."""
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    notes = [{"pitch": p, "start": bar * 4.0, "duration": 8.0, "velocity": 90}
+             for bar, pitches in ((0, [62, 65, 69]), (2, [67, 70, 74]))
+             for p in pitches]
+    _place(box, 0, 0, notes, bars=4)
+
+    _chords_out, bars_per_chord = box._reference_progression(0, 0, bars=4)
+    assert bars_per_chord == 2.0, bars_per_chord

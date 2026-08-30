@@ -19,6 +19,18 @@ from .tools import Toolbox
 
 # Prose for parameters whose meaning isn't obvious from the name alone.
 PARAM_DOCS: dict[str, str] = {
+    "reference_track": (
+        "Index of a track whose clip already holds the harmony this part should "
+        "follow. When set, the key, scale, chord qualities and harmonic rhythm "
+        "are read from that clip and the key/scale/degrees arguments are "
+        "ignored. Use it whenever the set already contains chords: a degree "
+        "number alone rebuilds the second chord of D minor as E diminished even "
+        "when the clip plainly plays Em7, and a part generated from that "
+        "disagrees with what is actually sounding."
+    ),
+    "reference_clip": (
+        "Which slot on reference_track to read the harmony from. Defaults to 0."
+    ),
     "track_index": "Zero-based track index in the Live set.",
     "clip_index": "Zero-based clip slot (scene row) on that track.",
     "key": "Root note, e.g. 'C', 'F#', 'Eb'.",
