@@ -1,13 +1,17 @@
 /* MIT License - Copyright (c) fintonlabs.com */
 
 /**
- * Runs the Python core as a local sidecar and streams its agent events.
+ * Runs the core as a local sidecar and streams its agent events.
  *
- * This is a development bridge, not the destination. The music theory,
- * generators, variations, arrangement planning and the agent loop all live in
- * the Python package today; porting them to TypeScript is in progress. Until
- * that lands, spawning the core we already have beats shipping a chat box that
- * does nothing.
+ * Two ways to find it, in order:
+ *
+ *  1. The frozen binary shipped inside the app bundle (Resources/core). This is
+ *     what a packaged build uses: it carries its own Python, so the app works
+ *     on a machine with no checkout and no virtualenv. Before it existed a
+ *     signed DMG could connect to Live and show the set but not answer a single
+ *     message anywhere but the developer's own machine.
+ *  2. A checkout's virtualenv, which is what `npm run dev` uses so a code
+ *     change does not need a 20-second freeze to try.
  *
  * The sidecar is bound to 127.0.0.1 on an ephemeral port, is started only when
  * first needed, and is killed with the app.
@@ -63,6 +67,19 @@ function findProjectRoot(appPath: string): string | null {
   return null;
 }
 
+/** The frozen core inside a packaged app, if this is one. */
+function bundledCore(appPath: string): string | null {
+  const candidates = [
+    // Packaged: Contents/Resources/core/ableton-ai-core, with app.asar under
+    // Resources too, so the app path's parent is the right place to look.
+    join(process.resourcesPath ?? '', 'core', 'ableton-ai-core'),
+    join(appPath, '..', 'core', 'ableton-ai-core'),
+    // Built but not packaged, for testing the frozen core in development.
+    join(appPath, '..', '..', 'dist', 'core', 'ableton-ai-core'),
+  ];
+  return candidates.find((p) => p && existsSync(p)) ?? null;
+}
+
 function pythonExecutable(root: string | null): string | null {
   const explicit = process.env.ABLETON_AI_PYTHON;
   if (explicit && existsSync(explicit)) return explicit;
@@ -97,7 +114,7 @@ async function freePort(): Promise<number> {
  */
 function killOrphans(currentPid: number | null): number {
   try {
-    const out = execFileSync('pgrep', ['-f', 'ableton_ai.server'], {
+    const out = execFileSync('pgrep', ['-f', 'ableton_ai.server|ableton-ai-core'], {
       encoding: 'utf8',
     });
     const pids = out
@@ -142,16 +159,23 @@ export class AgentSidecar {
     if (this.starting) return this.starting;
 
     this.starting = (async () => {
-      const root = findProjectRoot(this.appPath);
-      const python = pythonExecutable(root);
-      if (!python || !root) {
+      // The frozen core wins: a packaged app must not depend on a checkout
+      // happening to be present on the machine it was copied to.
+      const frozen = bundledCore(this.appPath);
+      const root = frozen ? null : findProjectRoot(this.appPath);
+      const python = frozen ?? pythonExecutable(root);
+      const args = frozen ? [] : ['-m', 'ableton_ai.server'];
+      const cwd = frozen ? dirname(frozen) : root!;
+
+      if (!python) {
         throw new Error(
-          'Python core not found. Eightbar looked for a directory containing ' +
-            'both pyproject.toml and .venv, starting from the app and its ' +
-            `working directory (searched from ${this.appPath}). Either run the ` +
-            'app from inside the checkout, or set ABLETON_AI_ROOT to the ' +
-            'project directory. To create the environment: ' +
-            'uv venv && uv pip install -e ".[dev]"',
+          'Core not found. Eightbar looked for the bundled core in ' +
+            "the app's Resources, then for a checkout containing both " +
+            `pyproject.toml and .venv (searched from ${this.appPath}). ` +
+            'In development, run the app from inside the checkout or set ' +
+            'ABLETON_AI_ROOT. To create the environment: ' +
+            'uv venv && uv pip install -e ".[dev]". ' +
+            'To build the bundled core: npm run build:core',
         );
       }
 
@@ -162,8 +186,8 @@ export class AgentSidecar {
       }
 
       this.port = await freePort();
-      const child = spawn(python, ['-m', 'ableton_ai.server'], {
-        cwd: root,
+      const child = spawn(python, args, {
+        cwd,
         env: {
           ...process.env,
           ABLETON_AI_UI_PORT: String(this.port),

@@ -14,3 +14,7 @@ electron/release/
 # Generated audio and learned corpus state
 *.wav
 *.aif
+
+# The frozen core: 88MB of build output, rebuilt by `npm run build:core`.
+/dist/
+/build/pyinstaller/

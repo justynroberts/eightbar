@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import os
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -21,7 +22,19 @@ from .llm import make_backend
 
 log = logging.getLogger(__name__)
 
-WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+def _web_dir() -> Path:
+    """Where the browser UI lives, in a checkout or inside a frozen bundle.
+
+    PyInstaller unpacks to a temp directory and rewrites __file__, so walking up
+    from the module lands nowhere. sys._MEIPASS is the bundle root when frozen.
+    """
+    bundled = getattr(sys, "_MEIPASS", None)
+    if bundled:
+        return Path(bundled) / "web"
+    return Path(__file__).resolve().parents[2] / "web"
+
+
+WEB_DIR = _web_dir()
 
 app = FastAPI(title="Ableton AI", version="0.1.0")
 

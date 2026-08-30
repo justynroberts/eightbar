@@ -170,3 +170,61 @@ step (`text`, `tool_start`, `tool_end`, `error`).
 - In `arrange_to_timeline`, `impact` is placed once on the section downbeat and
   `riser` is positioned to *finish* on the section boundary. Those are
   `ONE_SHOT_ROLES` / `SPAN_ROLES`, not general looping.
+
+## Testing against real Ableton
+
+`tests/` is two suites. The default run is the simulator only:
+
+```bash
+python -m pytest tests/ -q                              # 213, no Ableton needed
+python -m pytest tests/test_live_conformance.py -m live -v   # 9, needs Live
+```
+
+The conformance suite exists because **the simulator is faithful to the API as
+written down, not the API Live has**. Every serious bug found on 2026-08-30
+passed the entire simulator suite: `clear_arrangement` removed nothing because
+`Clip.delete_clip()` does not exist; the park clip survived because handles die
+after any edit; six locators of ten vanished because `current_song_time` lands a
+tick late; an empty `track_indices` list wiped the whole timeline. None of those
+are expressible against dicts.
+
+Run it after any change to `remote_script/`. It creates and deletes its own
+scratch track and restores the locators it moved.
+
+## Two things that do not fail loudly
+
+**Swallowed exceptions.** Handlers call `self._warn(where, exc)` rather than
+`except Exception: pass`, and every response carries `warnings`. This is not
+tidiness: `clear_arrangement` reported success while deleting nothing for
+months, and no test could see it.
+
+**Unsaved work.** Live exposes no document-modified flag, so the remote script
+counts non-read commands and `ping` returns `unsaved_changes`. Check
+`unsaved_changes` before anything that reloads Live -- an unsaved session does
+not survive a restart and there is no undo across one. `snapshot_set` writes the
+whole set to JSON that `restore_snapshot` replays; `clear_arrangement`,
+`delete_track` and `arrange_to_timeline` take one automatically.
+
+## Analysis before generation
+
+`analyse_set` reads the key, scale and progression out of the clips already in
+the set. Call it before generating anything into a set you did not build -- a
+sample named `..._Gmin` sat next to a chord clip that was actually in D minor.
+
+Better still, pass `reference_track` to a generator: degrees alone rebuild a
+clip's Em7 as E diminished, because that is the second degree of D minor.
+`_reference_progression` lifts the sounding pitches, qualities and bar spacing
+instead.
+
+## Learning from references
+
+`corpus.py` learns from MIDI files; `degrees="learned"`, `style="learned"` and
+`groove="learned"` are how that reaches generation. Without those the corpus is
+write-only -- it was, for a while. `corpus_profile` reports what was learned.
+
+## Packaging
+
+`npm run dist:mac` freezes the Python core with PyInstaller (`build_core.spec`
+-> `dist/core/`, ~88MB) and ships it in `Resources/core`. The Electron app
+prefers that binary and falls back to a checkout's `.venv` in development, so a
+packaged build chats on a machine with no Python. `dist/` is gitignored.

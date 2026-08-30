@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0"]
+dev = ["pytest>=8.0.0", "pyinstaller>=6.0"]
 
 [project.scripts]
 ableton-ai = "ableton_ai.cli:main"
@@ -25,3 +25,7 @@ packages = ["src/ableton_ai"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Conformance tests talk to a running Ableton and are skipped otherwise, so a
+# green simulator run never implies the real API agrees.
+markers = ["live: needs a running Ableton with the AbletonAI script loaded"]
+addopts = "-m 'not live'"

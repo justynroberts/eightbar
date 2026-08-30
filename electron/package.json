@@ -12,12 +12,13 @@
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build",
     "build": "npm run typecheck && npm run build:main && npm run build:renderer",
-    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:mac": "npm run build:core && npm run build && electron-builder --mac",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:renderer": "vite",
-    "dev:electron": "cross-env VITE_DEV_SERVER=http://127.0.0.1:7818 node scripts/build-main.mjs --watch --dev"
+    "dev:electron": "cross-env VITE_DEV_SERVER=http://127.0.0.1:7818 node scripts/build-main.mjs --watch --dev",
+    "build:core": "cd .. && ./.venv/bin/python -m PyInstaller build_core.spec --noconfirm --distpath dist --workpath build/pyinstaller"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
@@ -50,6 +51,10 @@
       {
         "from": "../remote_script",
         "to": "remote_script"
+      },
+      {
+        "from": "../dist/core",
+        "to": "core"
       }
     ],
     "mac": {
