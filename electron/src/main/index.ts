@@ -136,9 +136,23 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   bridge.close();
-  agent.stop();
   if (process.platform !== 'darwin') app.quit();
 });
+
+// The sidecar must die with the app on every exit path, not only when the last
+// window closes -- on macOS that event fires while the app stays alive.
+app.on('before-quit', () => {
+  bridge.close();
+  agent.stop();
+});
+
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.on(signal, () => {
+    agent.stop();
+    process.exit(0);
+  });
+}
+process.on('exit', () => agent.stop());
 
 // ---------------------------------------------------------------- IPC
 

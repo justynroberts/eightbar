@@ -94,7 +94,7 @@ ENUMS: dict[str, list[str]] = {
     "scale": _vocab(theory.SCALES, theory.ALIASES),
     "variation": _vocab(harmony.RECIPES),
     "voicing": _vocab(voicings.STYLES, voicings.ALIASES),
-    "extension": _vocab(voicings.EXTENSION_LADDER),
+    "extension": voicings.extension_vocabulary(),
     "pattern": _vocab(generators.DRUM_PATTERNS),
     "groove": _vocab(groove.GROOVES, groove.ALIASES),
     "groove_name": _vocab(groove.GROOVES, groove.ALIASES),

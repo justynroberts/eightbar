@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import math
 import random
+import time
 from typing import Any, Callable
 
 from . import (
@@ -71,6 +72,18 @@ def _role_from_name(name: str) -> str:
         if needle in lowered:
             return role
     return "lead"
+
+
+def _has_session_clip(bridge, entry: dict) -> bool:
+    """True when at least one of the entry's session slots holds a clip."""
+    for ci in _slots_for(entry):
+        try:
+            bridge.call("get_clip", track_index=int(entry["track_index"]),
+                        clip_index=int(ci))
+            return True
+        except (AbletonError, AbletonNotRunning):
+            continue
+    return False
 
 
 def _slots_for(entry: dict[str, Any]) -> list[int]:
@@ -812,6 +825,7 @@ class Toolbox:
         # Extended chords sit higher than triads. A ninth voiced from a triad's
         # home register puts its 7th and 9th in the low mids, which is the
         # single fastest way to make a chord part sound like mud.
+        extension = voicings.normalise_extension(extension) or extension
         if octave is None:
             octave = 4 if extension in ("ninth", "eleventh", "thirteenth") else 3
 
@@ -1391,11 +1405,31 @@ class Toolbox:
 
         sections, tracks = clean_sections, clean_tracks
 
+        # What is already on the timeline. A sample dragged straight into the
+        # arrangement has no session clip, so this is the only source for it --
+        # and it has to be read before anything is cleared.
+        on_timeline: dict[int, float] = {}
+        try:
+            for entry in self.bridge.call("get_arrangement").get("tracks", []):
+                clips = entry.get("clips") or []
+                if clips:
+                    first = clips[0]
+                    span = float(first.get("length_bars") or 0.0)
+                    if span > 0:
+                        on_timeline[int(entry["index"])] = span
+        except (AbletonError, AbletonNotRunning) as exc:
+            log.warning("could not read the timeline: %s", exc)
+
         if clear_first:
-            self.bridge.call(
-                "clear_arrangement",
-                track_indices=[int(t["track_index"]) for t in tracks],
-            )
+            # Clearing a track whose only copy of the sample is on the
+            # timeline would destroy the very thing we are placing.
+            clear_these = [
+                int(t["track_index"]) for t in tracks
+                if int(t["track_index"]) not in on_timeline
+                or _has_session_clip(self.bridge, t)
+            ]
+            if clear_these:
+                self.bridge.call("clear_arrangement", track_indices=clear_these)
 
         # Cache clip lengths so we know how many repeats fill a section. A slot
         # that holds no clip is skipped rather than fatal: a placeholder track
@@ -1423,6 +1457,15 @@ class Toolbox:
                 usable.append(ci)
             if usable:
                 placeable.append({**entry, "clip_indices": usable})
+            elif ti in on_timeline:
+                # Nothing in the session, but there is material on the
+                # timeline -- an imported sample. Spread that instead.
+                lengths[(ti, -1)] = on_timeline[ti]
+                placeable.append({**entry, "clip_indices": [-1],
+                                  "from_timeline": True})
+                skipped_tracks[:] = [
+                    sk for sk in skipped_tracks if sk.get("track_index") != ti
+                ]
 
         if not placeable:
             raise ToolError(
@@ -1439,6 +1482,9 @@ class Toolbox:
         available = {str(e.get("role", "")).lower() for e in tracks}
 
         placements = []
+        # Timeline-sourced tracks are placed in one call each, at the end: the
+        # source has to survive until every copy is made.
+        timeline_spread: dict[int, list[dict]] = {}
         for section in sections:
             start_bar = float(section["start_bar"])
             bars = float(section["bars"])
@@ -1489,13 +1535,18 @@ class Toolbox:
                     repeats = max(1, int(round(bars / clip_bars)))
                     at = start_bar
 
-                self.bridge.call(
-                    "duplicate_clip_to_arrangement",
-                    track_index=ti,
-                    clip_index=ci,
-                    start_bar=at,
-                    repeats=repeats,
-                )
+                if entry.get("from_timeline"):
+                    timeline_spread.setdefault(ti, []).append(
+                        {"start_bar": at, "repeats": repeats}
+                    )
+                else:
+                    self.bridge.call(
+                        "duplicate_clip_to_arrangement",
+                        track_index=ti,
+                        clip_index=ci,
+                        start_bar=at,
+                        repeats=repeats,
+                    )
                 placements.append(
                     {
                         "section": section.get("name"),
@@ -1506,6 +1557,15 @@ class Toolbox:
                         "repeats": repeats,
                     }
                 )
+
+        for ti, specs in timeline_spread.items():
+            try:
+                self.bridge.call(
+                    "duplicate_arrangement_clip",
+                    track_index=ti, source_index=0, placements=specs,
+                )
+            except (AbletonError, AbletonNotRunning) as exc:
+                skipped_tracks.append({"track_index": ti, "why": str(exc)})
 
         # Label the timeline so the sections are navigable in Live.
         try:
@@ -1518,7 +1578,10 @@ class Toolbox:
                 ],
                 clear_existing=True,
             )
+            markers = self._await_locators(len(sections))
+            log.info("placed %d locators", len(markers))
         except (AbletonError, AbletonNotRunning) as exc:
+            markers = []
             log.warning("could not set locators: %s", exc)
 
         self.bridge.call("set_view", view="arrangement")
@@ -1528,6 +1591,7 @@ class Toolbox:
             "end_bars": summary.get("end_bars"),
             "duration_seconds": summary.get("duration_seconds"),
             "detail": placements[:60],
+            "markers": [m["name"] for m in markers],
         }
         if skipped_tracks:
             result["skipped_tracks"] = skipped_tracks
@@ -1536,6 +1600,27 @@ class Toolbox:
                 "clip yet, which is expected for vocals and FX."
             )
         return result
+
+    def _await_locators(self, expected: int, timeout: float = 20.0) -> list[dict]:
+        """Locators are placed a tick at a time; wait for the queue to drain."""
+        deadline = time.time() + timeout
+        last, stable = -1, 0
+        while time.time() < deadline:
+            time.sleep(0.25)
+            try:
+                found = self.bridge.call("get_locators")["locators"]
+            except (AbletonError, AbletonNotRunning):
+                break
+            if len(found) >= expected:
+                return found
+            stable = stable + 1 if len(found) == last else 0
+            last = len(found)
+            if stable >= 8:
+                return found
+        try:
+            return self.bridge.call("get_locators")["locators"]
+        except (AbletonError, AbletonNotRunning):
+            return []
 
     def tool_clear_arrangement(self, track_indices: list[int] | None = None) -> dict:
         """Delete arrangement-timeline clips, on the given tracks or all of them."""
@@ -1781,9 +1866,13 @@ class Toolbox:
         Each marker is {"name": "Drop 1", "start_bar": 48}. This is what makes a
         generated arrangement navigable in Live rather than a wall of clips.
         """
-        return self.bridge.call(
+        self.bridge.call(
             "set_locators", markers=markers, clear_existing=clear_existing
         )
+        # Placement runs a tick at a time inside Live, so report what landed
+        # rather than what was asked for.
+        placed = self._await_locators(len(markers))
+        return {"count": len(placed), "locators": placed}
 
     def tool_get_locators(self) -> dict:
         """List the named markers currently on the arrangement timeline."""

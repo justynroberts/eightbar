@@ -13,7 +13,7 @@
  * first needed, and is killed with the app.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
@@ -86,6 +86,38 @@ async function freePort(): Promise<number> {
   });
 }
 
+/**
+ * Kill any core left behind by a previous run.
+ *
+ * The sidecar is a child process, and a parent that is killed rather than
+ * quitted does not take it with it. Those orphans keep their port and keep
+ * serving the code they were started with, so a chat can end up talking to a
+ * build from hours ago and failing on things that were fixed since. Six of
+ * them had accumulated before this was noticed.
+ */
+function killOrphans(currentPid: number | null): number {
+  try {
+    const out = execFileSync('pgrep', ['-f', 'ableton_ai.server'], {
+      encoding: 'utf8',
+    });
+    const pids = out
+      .split('\n')
+      .map((line) => Number(line.trim()))
+      .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== currentPid);
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // Already gone, or not ours to kill.
+      }
+    }
+    return pids.length;
+  } catch {
+    // pgrep exits non-zero when nothing matches, which is the common case.
+    return 0;
+  }
+}
+
 export class AgentSidecar {
   /** Where the app itself lives; the search for the core starts here. */
   appPath: string = process.cwd();
@@ -121,6 +153,12 @@ export class AgentSidecar {
             'project directory. To create the environment: ' +
             'uv venv && uv pip install -e ".[dev]"',
         );
+      }
+
+      // Anything left over from a previous run is serving stale code.
+      const orphans = killOrphans(this.child?.pid ?? null);
+      if (orphans) {
+        process.stdout.write(`[core] cleared ${orphans} orphaned sidecar(s)\n`);
       }
 
       this.port = await freePort();
@@ -173,8 +211,12 @@ export class AgentSidecar {
   }
 
   stop(): void {
+    const pid = this.child?.pid ?? null;
     this.child?.kill('SIGTERM');
     this.child = null;
+    // Belt and braces: if the child had already re-parented, SIGTERM on the
+    // handle does nothing and the process survives the app.
+    killOrphans(pid === null ? null : -1);
   }
 
   /** Apply new environment and restart, so a key change takes effect at once. */

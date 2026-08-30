@@ -200,6 +200,7 @@ class AbletonAI(ControlSurface):
             "replace_notes": self._replace_notes,
             "add_notes": self._add_notes,
             "duplicate_clip_to_arrangement": self._duplicate_clip_to_arrangement,
+            "duplicate_arrangement_clip": self._duplicate_arrangement_clip,
             "get_arrangement": self._get_arrangement,
             "clear_arrangement": self._clear_arrangement,
             "set_arrangement_loop": self._set_arrangement_loop,
@@ -948,55 +949,95 @@ class AbletonAI(ControlSurface):
     def _set_locators(self, params):
         """Drop named arrangement markers so section boundaries are visible.
 
-        Live only exposes "toggle a cue at the playhead", so we move the
-        playhead to each bar in turn, create the marker, then rename it.
+        Live only exposes "toggle a cue at the playhead", and assigning
+        ``current_song_time`` does not take effect until the next tick. Doing
+        the whole list in one call therefore toggled every marker at whatever
+        position the playhead happened to still be at, so only the first one
+        landed. Each move and each toggle gets its own tick instead, which
+        makes this asynchronous -- callers poll ``get_locators``.
         """
         song = self.song()
         markers = params.get("markers") or []
+
+        self._locator_resume = bool(song.is_playing)
+        if self._locator_resume:
+            song.stop_playing()
+        self._locator_restore = song.current_song_time
+
+        steps = []
         if params.get("clear_existing", True):
             for cue in list(song.cue_points):
-                try:
-                    song.current_song_time = cue.time
-                    song.set_or_delete_cue()
-                except Exception:
-                    pass
-
-        # set_or_delete_cue() acts at the playhead. If Live is playing, the
-        # playhead moves between markers and they all collapse onto wherever it
-        # happened to be -- so pause first and restore afterwards.
-        was_playing = bool(song.is_playing)
-        if was_playing:
-            song.stop_playing()
-
-        restore = song.current_song_time
-        created = []
+                steps.append(("delete", cue.time, None))
         for marker in markers:
-            beat = float(marker.get("start_bar", 0.0)) * BEATS_PER_BAR
-            song.current_song_time = beat
-            existing = [c for c in song.cue_points if abs(c.time - beat) < 0.25]
-            if not existing:
-                song.set_or_delete_cue()
-            placed = None
+            steps.append((
+                "create",
+                float(marker.get("start_bar", 0.0)) * BEATS_PER_BAR,
+                marker.get("name"),
+            ))
+
+        self._locator_queue = steps
+        self._locator_moved = False
+        self._locator_done = []
+        if steps:
+            self.schedule_message(1, self._locator_step)
+        return {"scheduled": len(steps), "pending": True}
+
+    def _locator_step(self):
+        """One tick of the locator queue: move the playhead, then act on it."""
+        song = self.song()
+        queue = getattr(self, "_locator_queue", None)
+        if not queue:
+            try:
+                song.current_song_time = getattr(self, "_locator_restore", 0.0)
+                if getattr(self, "_locator_resume", False):
+                    song.start_playing()
+            except Exception:
+                pass
+            return
+
+        kind, beat, name = queue[0]
+        if kind == "rename":
+            queue.pop(0)
             for cue in song.cue_points:
                 if abs(cue.time - beat) < 0.25:
-                    placed = cue
+                    try:
+                        cue.name = name
+                    except Exception:
+                        pass
+                    self._locator_done.append({
+                        "name": cue.name,
+                        "start_bar": cue.time / BEATS_PER_BAR,
+                    })
                     break
-            if placed is None:
-                continue
-            name = marker.get("name")
-            if name:
-                try:
-                    placed.name = name
-                except Exception:
-                    pass
-            created.append({
-                "name": placed.name,
-                "start_bar": placed.time / BEATS_PER_BAR,
-            })
-        song.current_song_time = restore
-        if was_playing:
-            song.start_playing()
-        return {"locators": created, "count": len(created)}
+            self.schedule_message(1, self._locator_step)
+            return
+
+        if not self._locator_moved:
+            try:
+                song.current_song_time = beat
+            except Exception:
+                queue.pop(0)
+            self._locator_moved = True
+            self.schedule_message(1, self._locator_step)
+            return
+
+        self._locator_moved = False
+        queue.pop(0)
+        existing = [c for c in song.cue_points if abs(c.time - beat) < 0.25]
+        try:
+            if kind == "delete":
+                if existing:
+                    song.set_or_delete_cue()
+            else:
+                if not existing:
+                    song.set_or_delete_cue()
+                # A cue created this tick is not in song.cue_points yet, so the
+                # rename is queued as its own step rather than done here.
+                if name:
+                    queue.insert(0, ("rename", beat, name))
+        except Exception:
+            pass
+        self.schedule_message(1, self._locator_step)
 
     def _get_locators(self, params):
         song = self.song()
@@ -1137,23 +1178,136 @@ class AbletonAI(ControlSurface):
             "end_bars": round((start + repeats * step) / BEATS_PER_BAR, 3),
         }
 
+    def _duplicate_arrangement_clip(self, params):
+        """Repeat a clip that already sits on the timeline.
+
+        A sample dropped straight into the arrangement has no session clip, so
+        the ordinary duplicate path cannot place it -- which is why user samples
+        ended up sitting on the timeline once while the generated parts were
+        spread across every section.
+
+        Copies are made from a *parked* duplicate rather than from the original.
+        Live truncates whatever an incoming clip overlaps, so placing copies
+        directly from the original risks trimming the source halfway through the
+        run and turning the remaining copies into fragments. The park sits well
+        past everything being placed, and is deleted at the end.
+        """
+        track_index = int(params.get("track_index", 0))
+        track = self._track_at(track_index)
+        clips = sorted(getattr(track, "arrangement_clips", []),
+                       key=lambda c: c.start_time)
+        if not clips:
+            raise ValueError(
+                "track " + str(track_index) + " has nothing on the timeline to repeat"
+            )
+
+        source_index = int(params.get("source_index", 0))
+        if source_index >= len(clips):
+            raise IndexError("source_index out of range (" + str(len(clips)) + ")")
+        source = clips[source_index]
+
+        # Read everything off the source *now*. A copy placed over its position
+        # destroys the original, and any later attribute access on the dead
+        # handle fails as a Boost signature mismatch rather than an AttributeError.
+        source_name = source.name
+        source_start = source.start_time
+        length = source.end_time - source.start_time
+        if length <= 0:
+            raise ValueError("source clip has no length")
+
+        placements = params.get("placements")
+        if not placements:
+            placements = [{"start_bar": params.get("start_bar", 0.0),
+                           "repeats": params.get("repeats", 1)}]
+
+        wanted = []
+        for spec in placements:
+            start = float(spec.get("start_bar", 0.0)) * BEATS_PER_BAR
+            repeats = max(1, int(spec.get("repeats", 1)))
+            for r in range(repeats):
+                wanted.append(start + r * length)
+        if not wanted:
+            return {"placed": 0}
+
+        # Park beyond everything, including the existing timeline.
+        furthest = max([max(wanted) + length] + [c.end_time for c in clips])
+        park_at = furthest + 128 * BEATS_PER_BAR
+        def clip_at(beat):
+            """A *fresh* handle for the clip starting at ``beat``.
+
+            Every duplication invalidates handles taken before it, and Live
+            reports a stale one as a Boost signature mismatch rather than a
+            clean failure -- the same lifetime rule that bites clip envelopes.
+            So the park is looked up again for each use, never cached.
+            """
+            for clip in getattr(track, "arrangement_clips", []):
+                try:
+                    if abs(clip.start_time - beat) < 1e-6:
+                        return clip
+                except Exception:
+                    continue
+            return None
+
+        track.duplicate_clip_to_arrangement(source, park_at)
+        placed = 0
+        for at in sorted(wanted):
+            park = clip_at(park_at)
+            if park is None:
+                break
+            track.duplicate_clip_to_arrangement(park, at)
+            placed += 1
+
+        park_removed, park_error = False, None
+        try:
+            park = clip_at(park_at)
+            if park is None:
+                park_error = "park not found at %.3f" % park_at
+            else:
+                track.delete_clip(park)
+                park_removed = True
+        except Exception as exc:
+            park_error = repr(exc)
+
+        return {
+            "source": {"name": source_name,
+                       "start_bar": source_start / BEATS_PER_BAR,
+                       "length_bars": length / BEATS_PER_BAR},
+            "placed": placed,
+            "park_removed": park_removed,
+            "park_error": park_error,
+            "placed_at_bars": [a / BEATS_PER_BAR for a in sorted(wanted)],
+        }
+
     def _clear_arrangement(self, params):
         song = self.song()
         indices = params.get("track_indices")
-        targets = (
-            [self._track_at(int(i)) for i in indices]
-            if indices
-            else list(song.tracks)
-        )
-        removed = 0
+        # An *explicitly empty* list means clear nothing. Treating it the same
+        # as an absent one wiped the whole timeline, which is the opposite of
+        # what a caller that filtered its list down to zero tracks wants.
+        if indices is None:
+            targets = list(song.tracks)
+        else:
+            targets = [self._track_at(int(i)) for i in indices]
+        # Deletion belongs to the Track, not the Clip: Clip has no delete_clip,
+        # so the old call raised an AttributeError that was swallowed and this
+        # cleared nothing at all. Removing a clip also invalidates the rest of
+        # the collection, so the list is re-read after every delete.
+        removed, failed = 0, None
         for track in targets:
-            for clip in list(getattr(track, "arrangement_clips", [])):
+            while True:
+                clips = list(getattr(track, "arrangement_clips", []))
+                if not clips:
+                    break
                 try:
-                    clip.delete_clip()
+                    track.delete_clip(clips[0])
                     removed += 1
-                except Exception:
-                    pass
-        return {"removed": removed}
+                except Exception as exc:
+                    failed = repr(exc)[:200]
+                    break
+        result = {"removed": removed}
+        if failed:
+            result["error"] = failed
+        return result
 
     def _set_arrangement_loop(self, params):
         song = self.song()

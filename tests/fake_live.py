@@ -199,6 +199,35 @@ class FakeBridge:
                          "end_beats": (start + bars) * BEATS_PER_BAR})
         return {"placed_at_beats": [], "end_bars": start_bar + repeats * bars}
 
+    def _duplicate_arrangement_clip(self, track_index: int, source_index: int = 0,
+                                    placements=None, start_bar: float = 0.0,
+                                    repeats: int = 1) -> dict:
+        lane = self.arrangement.setdefault(track_index, [])
+        if not lane:
+            raise KeyError(f"track {track_index} has nothing on the timeline")
+        ordered = sorted(lane, key=lambda c: c["start_bars"])
+        source = ordered[source_index]
+        bars = source["length_bars"]
+        specs = placements or [{"start_bar": start_bar, "repeats": repeats}]
+        placed = 0
+        for spec in specs:
+            begin = float(spec.get("start_bar", 0.0))
+            for r in range(max(1, int(spec.get("repeats", 1)))):
+                at = begin + r * bars
+                # Live replaces whatever an incoming clip overlaps.
+                lane[:] = [c for c in lane
+                           if c["start_bars"] + c["length_bars"] <= at
+                           or c["start_bars"] >= at + bars]
+                lane.append({"name": source["name"], "start_bars": at,
+                             "length_bars": bars,
+                             "start_beats": at * BEATS_PER_BAR,
+                             "end_beats": (at + bars) * BEATS_PER_BAR})
+                placed += 1
+        return {"source": {"name": source["name"],
+                           "start_bar": source["start_bars"],
+                           "length_bars": bars},
+                "placed": placed}
+
     def _get_arrangement(self) -> dict:
         tracks, end = [], 0.0
         for index, clips in sorted(self.arrangement.items()):
@@ -214,7 +243,9 @@ class FakeBridge:
                 "tracks": tracks}
 
     def _clear_arrangement(self, track_indices=None) -> dict:
-        targets = track_indices if track_indices else list(self.arrangement)
+        # An explicitly empty list clears nothing; only an absent one is "all".
+        targets = (list(self.arrangement) if track_indices is None
+                   else list(track_indices))
         removed = 0
         for index in targets:
             removed += len(self.arrangement.get(index, []))

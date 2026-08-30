@@ -115,16 +115,48 @@ def _intervals_for(quality: str) -> dict[str, int]:
     return _MINOR_INTERVALS
 
 
+# Chord-quality names read exactly like extension names, and the difference is
+# an implementation detail nobody outside this file should have to know. Map
+# the obvious ones rather than refusing them.
+EXTENSION_ALIASES: dict[str, str] = {
+    "minor9": "ninth", "major9": "ninth", "dominant9": "ninth", "min9": "ninth",
+    "maj9": "ninth", "dom9": "ninth", "9": "ninth", "9th": "ninth",
+    "minor7": "seventh", "major7": "seventh", "dominant7": "seventh",
+    "min7": "seventh", "maj7": "seventh", "dom7": "seventh",
+    "7": "seventh", "7th": "seventh",
+    "minor11": "eleventh", "major11": "eleventh", "11": "eleventh",
+    "11th": "eleventh",
+    "minor13": "thirteenth", "major13": "thirteenth", "13": "thirteenth",
+    "13th": "thirteenth",
+    "minor6": "sixth", "major6": "sixth", "6": "sixth", "6th": "sixth",
+    "add2": "add9", "added9": "add9",
+    "none": "triad", "plain": "triad", "simple": "triad", "3": "triad",
+}
+
+
+def normalise_extension(name: str) -> str | None:
+    key = (name or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if key in EXTENSION_LADDER:
+        return key
+    return EXTENSION_ALIASES.get(key)
+
+
+def extension_vocabulary() -> list[str]:
+    return sorted(set(EXTENSION_LADDER) | set(EXTENSION_ALIASES))
+
+
 def extend(chord: Chord, extension: str = "triad") -> list[int]:
     """Add extensions to a chord and drop the tones that crowd them.
 
     Returns absolute pitches, unvoiced -- spacing is applied separately.
     """
-    if extension not in EXTENSION_LADDER:
+    resolved = normalise_extension(extension)
+    if resolved is None:
         raise ValueError(
             f"unknown extension {extension!r}; one of: "
             f"{', '.join(EXTENSION_LADDER)}"
         )
+    extension = resolved
 
     root = chord.root_pitch
     triad = list(chord.pitches[:3])

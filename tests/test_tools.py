@@ -639,3 +639,107 @@ def test_a_section_with_no_length_at_all_says_so(box):
             "sections": [{"name": "intro", "start_bar": 0, "roles": ["kick"]}],
             "tracks": [{"track_index": 0, "clip_index": 0, "role": "kick"}],
         })
+
+
+def test_extension_accepts_chord_quality_names(box):
+    """Regression: extension="minor9" was refused. It is the natural way to
+    say it, and the ladder/quality distinction is an internal detail."""
+    from ableton_ai import voicings
+
+    for said, meant in (("minor9", "ninth"), ("maj7", "seventh"),
+                        ("11", "eleventh"), ("plain", "triad")):
+        assert voicings.normalise_extension(said) == meant
+
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    result = box.call("create_varied_chords",
+                      {"track_index": 0, "key": "G", "extension": "minor9"})
+    assert result["notes_written"] > 0
+
+
+def test_role_accepts_the_obvious_synonyms(box, tmp_path):
+    """Regression: role="melody" was refused, while corpus.classify_part was
+    itself emitting that word."""
+    from ableton_ai.arrangement import normalise_role
+    from ableton_ai.sounds import SoundPreferences
+
+    for said, meant in (("melody", "lead"), ("keys", "chords"),
+                        ("hats", "drums"), ("vox", "vocal")):
+        assert normalise_role(said) == meant
+    assert normalise_role("kazoo") is None
+
+    box.sounds = SoundPreferences(tmp_path / "p.json")
+    saved = box.call("set_sound_preference",
+                     {"role": "melody", "path": "Instruments/Wavetable"})
+    assert saved["role"] == "lead", "the synonym should be stored canonically"
+
+
+def test_samples_on_the_timeline_get_arranged(box):
+    """A dropped-in sample has no session clip, and used to be left behind.
+
+    Its only copy lives on the arrangement, so the ordinary duplicate path had
+    nothing to place and skipped the track -- which is how a user's own loops
+    ended up sitting on the timeline once while every generated part was spread
+    across the whole track.
+    """
+    live = box.bridge
+    live.call("create_audio_track", name="TORI_vocal_phrase")
+    audio = len(live.tracks) - 1
+    live.arrangement[audio] = [
+        {"name": "TORI_vocal_phrase", "start_bars": 0.0, "length_bars": 4.0,
+         "start_beats": 0.0, "end_beats": 16.0}
+    ]
+
+    result = box.call("arrange_to_timeline", {
+        "sections": [
+            {"name": "intro", "start_bar": 0, "bars": 16, "roles": ["vocal"]},
+            {"name": "drop", "start_bar": 16, "bars": 16, "roles": ["vocal"]},
+        ],
+        "tracks": [{"track_index": audio, "role": "vocal"}],
+        "clear_first": True,
+    })
+
+    assert not result.get("skipped_tracks"), result.get("skipped_tracks")
+    lane = live.arrangement[audio]
+    assert len(lane) == 8, f"expected the 4-bar sample eight times, got {len(lane)}"
+    assert max(c["start_bars"] + c["length_bars"] for c in lane) == 32.0
+
+
+def test_timeline_source_survives_clear_first(box):
+    """clear_first must not wipe the only copy of the sample it is about to place."""
+    live = box.bridge
+    live.call("create_audio_track", name="hat_loop")
+    audio = len(live.tracks) - 1
+    live.arrangement[audio] = [
+        {"name": "hat_loop", "start_bars": 8.0, "length_bars": 2.0,
+         "start_beats": 32.0, "end_beats": 40.0}
+    ]
+
+    box.call("arrange_to_timeline", {
+        "sections": [{"name": "drop", "start_bar": 0, "bars": 8,
+                      "roles": ["drums"]}],
+        "tracks": [{"track_index": audio, "role": "drums"}],
+        "clear_first": True,
+    })
+
+    assert live.arrangement[audio], "the sample was cleared before it could be placed"
+
+
+def test_empty_clear_list_clears_nothing(box):
+    """An empty track list must not be read as "every track".
+
+    arrange_to_timeline filters timeline-sourced tracks out of the clear, and
+    that filter can legitimately empty the list. Falling back to "all" there
+    would wipe the whole arrangement on the way to placing one sample.
+    """
+    live = box.bridge
+    live.call("create_midi_track", name="Keep")
+    live.arrangement[0] = [
+        {"name": "Keep", "start_bars": 0.0, "length_bars": 4.0,
+         "start_beats": 0.0, "end_beats": 16.0}
+    ]
+
+    live.call("clear_arrangement", track_indices=[])
+    assert live.arrangement[0], "an empty list wiped the timeline"
+
+    live.call("clear_arrangement")
+    assert not live.arrangement[0], "an absent list should still clear everything"
