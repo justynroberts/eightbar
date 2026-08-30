@@ -771,3 +771,47 @@ def test_musical_synonyms_are_accepted_as_mutations(box):
     allowed = schema["create_clip_variation"]["input_schema"]["properties"][
         "mutations"]["items"]["enum"]
     assert "stab" in allowed and "staccato" in allowed
+
+
+def _place(box, track_index, clip_index, notes, bars):
+    """Put raw notes in a slot, straight through the bridge."""
+    box.bridge.call("create_clip", track_index=track_index, clip_index=clip_index,
+                    length_beats=bars * 4.0, notes=notes)
+
+
+def _chords(pitches_per_bar):
+    return [{"pitch": p, "start": bar * 4.0, "duration": 4.0, "velocity": 90}
+            for bar, pitches in enumerate(pitches_per_bar) for p in pitches]
+
+
+def test_analyse_set_reads_the_key_off_the_chords_not_the_filler(box):
+    """A dense arp must not outvote the chords the set was written around.
+
+    The key vote was weighted by note count, so five copies of a 128-note
+    sixteenth arp buried an eight-chord progression and the whole set was
+    generated a fifth away from the material already in it.
+    """
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    box.call("create_track", {"name": "Arp", "role": "hook"})
+
+    # Dm - Gm - Am - Dm, whole notes: unambiguous D minor.
+    _place(box, 0, 0, _chords([[62, 65, 69], [67, 70, 74], [69, 72, 76],
+                               [62, 65, 69]]), bars=4)
+
+    # A busy sixteenth arp on a B-flat major shape: many notes, little weight.
+    _place(box, 1, 0, [{"pitch": [70, 74, 77][i % 3], "start": i * 0.25,
+                        "duration": 0.25, "velocity": 90} for i in range(64)],
+           bars=4)
+
+    result = box.call("analyse_set", {})
+    assert result["key"] == "D" and result["scale"] == "minor", result["summary"]
+    assert result["progression_from"]["track_index"] == 0, result["progression_from"]
+
+
+def test_analyse_clip_reports_degrees(box):
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    _place(box, 0, 0, _chords([[62, 65, 69], [67, 70, 74]]), bars=2)
+    result = box.call("analyse_clip", {"track_index": 0, "clip_index": 0})
+    assert result["key"] == "D"
+    assert result["part"] == "chords"
+    assert result["degrees"], result

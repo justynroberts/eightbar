@@ -672,6 +672,172 @@ class Toolbox:
         result["summary"] = library.summary()
         return result
 
+    def _clip_notes(self, track_index: int, clip_index: int):
+        """Notes from a Live clip, as the corpus analysers want them."""
+        clip = self.bridge.call(
+            "get_clip", track_index=track_index, clip_index=clip_index
+        )
+        notes = [
+            corpus.MidiNote(pitch=int(n["pitch"]), start=float(n["start"]),
+                            duration=float(n["duration"]),
+                            velocity=int(n["velocity"]), track=track_index)
+            for n in (clip.get("notes") or [])
+        ]
+        return notes, clip
+
+    def tool_analyse_clip(self, track_index: int, clip_index: int = 0) -> dict:
+        """Read what is already in a clip: its key, chords, degrees and part type.
+
+        Use this before writing anything into a set you did not build. Guessing
+        the key from a track or sample name is not the same thing -- a file
+        called "..._Gmin" sat next to a chord clip that was actually in D minor,
+        and every part generated around it clashed.
+        """
+        notes, clip = self._clip_notes(track_index, clip_index)
+        if not notes:
+            raise ToolError(
+                f"track {track_index} slot {clip_index} has no notes to analyse"
+            )
+
+        root, scale, confidence = corpus.detect_key(notes)
+        chords = corpus.extract_chords(notes, root, scale)
+        return {
+            "track_index": track_index,
+            "clip_index": clip_index,
+            "name": clip.get("name"),
+            "bars": round(clip["length_beats"] / BEATS_PER_BAR, 2),
+            "notes": len(notes),
+            "key": root,
+            "scale": scale,
+            "confidence": confidence,
+            "part": corpus.classify_part(notes),
+            "degrees": [c.degree for c in chords],
+            "chords": [
+                {"bar": round(c.bar, 2), "name": f"{c.root_name}{c.quality}",
+                 "degree": c.degree, "inversion": c.inversion,
+                 "fit": round(c.fit, 2)}
+                for c in chords
+            ],
+            "pitch_range": [min(n.pitch for n in notes),
+                            max(n.pitch for n in notes)],
+            "rhythm": corpus.extract_rhythm(notes),
+            "summary": (
+                f"{root} {scale} (confidence {confidence}), "
+                f"{corpus.classify_part(notes)}, "
+                f"degrees {[c.degree for c in chords] or 'none'}"
+            ),
+        }
+
+    def tool_analyse_set(self) -> dict:
+        """Work out the key and progression of the material already in the set.
+
+        Every clip with notes is analysed and the results are pooled, so the
+        answer comes from the whole set rather than from whichever clip was
+        looked at first. Harmony parts decide the key -- a bass line of four
+        notes will happily vote for the wrong one -- and the longest chord part
+        supplies the progression.
+
+        Call this first when a set already has music in it. What it returns is
+        what every generated part should then be written against.
+        """
+        state = self.bridge.call("get_song")
+        found, pooled = [], []
+        for track in state.get("tracks", []):
+            index = int(track["index"])
+            for slot in track.get("clips", []) or []:
+                clip_index = int(slot.get("slot", slot.get("index", 0)))
+                try:
+                    notes, clip = self._clip_notes(index, clip_index)
+                except (AbletonError, AbletonNotRunning):
+                    continue
+                if not notes:
+                    continue
+                root, scale, confidence = corpus.detect_key(notes)
+                found.append({
+                    "track_index": index,
+                    "track": track.get("name"),
+                    "clip_index": clip_index,
+                    "name": clip.get("name"),
+                    "notes": len(notes),
+                    "part": corpus.classify_part(notes),
+                    "key": root, "scale": scale, "confidence": confidence,
+                    "_notes": notes,
+                })
+                pooled.extend(notes)
+
+        if not found:
+            raise ToolError("no clip in this set has any notes to analyse")
+
+        # Chord parts decide the key. Drums are atonal, a four-note bass line is
+        # too thin to trust, and a lead or arp spells the harmony obliquely.
+        HARMONIC = ("chords", "pad", "keys", "lead", "melody", "hook", "arp")
+        voters = ([f for f in found if f["part"] == "chords"]
+                  or [f for f in found if f["part"] in HARMONIC]
+                  or found)
+
+        # Weight by how long the notes *sound*, not how many there are. Counting
+        # notes let five copies of a 128-note sixteenth arp outvote the eight
+        # whole-note chords the set was actually written around.
+        ballot: dict[tuple[str, str], float] = {}
+        for f in voters:
+            sounding = sum(n.duration for n in f["_notes"])
+            f["weight"] = round(f["confidence"] * sounding, 2)
+            ballot[(f["key"], f["scale"])] = (
+                ballot.get((f["key"], f["scale"]), 0.0) + f["weight"]
+            )
+        ranked = sorted(ballot.items(), key=lambda kv: kv[1], reverse=True)
+        (key, scale) = ranked[0][0]
+
+        # The progression comes from whichever chord part sits most cleanly in
+        # the key -- not the one with the most notes. A dense generated pad can
+        # easily out-count the eight chords the set was written around, and
+        # reading it in the wrong register yields degrees that are not in the
+        # scale at all (degree 0). Mean chord fit, with degree 0 counted as a
+        # miss, picks the clip that genuinely spells the harmony.
+        candidates = [f for f in found if f["part"] == "chords"] or voters
+
+        def spells_the_harmony(entry):
+            events = corpus.extract_chords(entry["_notes"], key, scale)
+            if not events:
+                return (0.0, 0)
+            diatonic = [e for e in events if e.degree]
+            if not diatonic:
+                return (0.0, 0)
+            mean_fit = sum(e.fit for e in diatonic) / len(diatonic)
+            return (mean_fit * (len(diatonic) / len(events)), len(diatonic))
+
+        source = max(candidates, key=spells_the_harmony)
+        chords = corpus.extract_chords(source["_notes"], key, scale)
+
+        for f in found:
+            del f["_notes"]
+
+        degrees = [c.degree for c in chords]
+        return {
+            "key": key,
+            "scale": scale,
+            "degrees": degrees,
+            "progression_from": {"track_index": source["track_index"],
+                                 "track": source["track"],
+                                 "clip_index": source["clip_index"]},
+            "chords": [
+                {"bar": round(c.bar, 2), "name": f"{c.root_name}{c.quality}",
+                 "degree": c.degree}
+                for c in chords
+            ],
+            "clips": found,
+            # A set can genuinely hold two keys, and a near-tie is worth seeing
+            # rather than silently resolving.
+            "alternatives": [
+                {"key": k, "scale": sc, "weight": round(w, 2)}
+                for (k, sc), w in ranked[1:4]
+            ],
+            "summary": (
+                f"{key} {scale}, degrees {degrees or 'none found'}, "
+                f"from {source['track']!r} across {len(found)} clip(s)"
+            ),
+        }
+
     def tool_corpus_summary(self) -> dict:
         """What the learned references have in common.
 
