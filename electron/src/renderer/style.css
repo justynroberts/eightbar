@@ -1,0 +1,463 @@
+/* MIT License - Copyright (c) fintonlabs.com */
+
+/*
+ * The palette is written at runtime from Ableton's own .ask theme file, so the
+ * values below are only a fallback for the moment before that lands (and for a
+ * machine with no Live installed). Everything downstream reads the tokens.
+ *
+ * Fallback = Live 12 "Default Dark Neutral Medium".
+ */
+:root {
+  color-scheme: dark;
+
+  --bg: #2a2a2a;
+  --panel: #242424;
+  --sunk: #1e1e1e;
+  --raised: #363636;
+  --detail: #3e3e3e;
+  --hover: #464646;
+  --text: #b5b5b5;
+  --text-dim: #757575;
+  --accent: #ffad56;
+  --line: #3d3d3d;
+  --alert: #e76942;
+  --record: #ff5559;
+  --selection: #b0ddeb;
+
+  --role-kick: #ff9b4e;
+  --role-drums: #ffb84d;
+  --role-perc: #e7d44b;
+  --role-bass: #c5e04c;
+  --role-sub: #8fd94f;
+  --role-chords: #4fd7b8;
+  --role-arp: #54c4ec;
+  --role-lead: #7ba3ff;
+  --role-hook: #b389ff;
+  --role-pad: #e07be0;
+  --role-riser: #ff77b0;
+  --role-impact: #ff6b7d;
+  --role-vocal: #69dc7a;
+  --role-fx: #a3a3a3;
+
+  --font-display: 'Bricolage Grotesque', 'SF Pro Display', system-ui, sans-serif;
+  --font-ui: 'IBM Plex Sans', -apple-system, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  --t-xs: 10.5px;
+  --t-sm: 11.5px;
+  --t-md: 13px;
+
+  --radius: 2px;
+  --title-h: 40px;
+}
+
+/* Light Ableton skins invert the text relationship; the runtime sets this. */
+:root[data-theme='light'] { color-scheme: light; }
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--t-md);
+  line-height: 1.5;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  /* Live has no texture and no gradient. Adding either stops it looking right. */
+}
+
+/* ------------------------------------------------------------- titlebar */
+
+.titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--title-h);
+  padding: 0 8px 0 78px;   /* room for the macOS traffic lights */
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.drag-region { position: absolute; inset: 0; -webkit-app-region: drag; }
+.titlebar > *:not(.drag-region) { position: relative; -webkit-app-region: no-drag; }
+
+.wordmark {
+  flex: 1;
+  font-family: var(--font-display);
+  font-variation-settings: 'wght' 700, 'wdth' 85, 'opsz' 18;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.wordmark span { color: var(--accent); }
+.titlebar-tools { display: flex; gap: 4px; }
+
+/* ------------------------------------------------------------ status bar */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.statusbar .pill { flex: 0 1 auto; min-width: 0; }
+.statusbar #refresh { margin-left: auto; }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--text-dim);
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.led { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex: none; }
+.led.on { background: var(--accent); }
+.led.off { background: var(--record); }
+
+/* ------------------------------------------------------------------ tabs */
+
+.tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.tabs button {
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-size: var(--t-sm);
+  padding: 5px 4px;
+}
+.tabs button:last-child { border-right: 0; }
+.tabs button:hover { background: var(--hover); color: var(--text); }
+/* Live marks the active view by filling it, not by underlining it. */
+.tabs button[aria-selected='true'] {
+  background: var(--sunk);
+  color: var(--accent);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* --------------------------------------------------------------- panels */
+
+main { height: calc(100vh - var(--title-h) - 60px); }
+.panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.panel[hidden] { display: none; }
+
+button, select {
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: background .1s linear, color .1s linear;
+}
+select { width: 100%; max-width: none; }
+button:hover, select:hover { background: var(--hover); }
+button:active { background: var(--accent); color: var(--panel); }
+button:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button.icon {
+  width: 22px; height: 22px; padding: 0;
+  display: grid; place-items: center;
+  font-size: 12px;
+  flex: none;
+}
+button.icon[aria-pressed='true'] { background: var(--accent); color: var(--panel); }
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--bg);
+  scrollbar-width: thin;
+  scrollbar-color: var(--hover) transparent;
+}
+.scroll::-webkit-scrollbar { width: 8px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--hover); border-radius: var(--radius); }
+
+.placeholder, .empty, .hint { color: var(--text-dim); font-size: var(--t-sm); }
+.hint { margin: 4px 0 0; }
+
+/* ----------------------------------------------------------- transcript */
+
+.turn { margin-bottom: 12px; }
+.turn-label {
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.turn.you .turn-label { color: var(--accent); }
+.bubble { white-space: pre-wrap; word-break: break-word; }
+.turn.you .bubble {
+  border-left: 2px solid var(--accent);
+  padding-left: 8px;
+}
+
+.tool-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) minmax(0, 55%);
+  gap: 6px;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  padding: 2px 0;
+  border-bottom: 1px solid var(--line);
+}
+.tool-row .mark { color: var(--text-dim); }
+.tool-row.ok .mark { color: var(--accent); }
+.tool-row.bad .mark { color: var(--record); }
+.tool-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-row .args { color: var(--text-dim); }
+.tool-row .detail {
+  text-align: right; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tool-row.bad .detail { color: var(--record); }
+
+.notice {
+  border: 1px solid var(--record);
+  color: var(--record);
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  font-size: var(--t-sm);
+  margin-bottom: 10px;
+}
+
+/* ------------------------------------------------------------- composer */
+
+.suggestions {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+.suggestions button { font-size: var(--t-xs); }
+
+.composer {
+  display: flex; gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+textarea {
+  flex: 1;
+  resize: none;
+  min-height: 30px;
+  max-height: 150px;
+  font-family: var(--font-ui);
+  font-size: var(--t-md);
+  color: var(--text);
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+}
+textarea::placeholder { color: var(--text-dim); }
+button.send {
+  background: var(--accent);
+  color: var(--panel);
+  border-color: var(--accent);
+  font-weight: 600;
+  padding-inline: 14px;
+}
+button.send:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ------------------------------------------------------------ set panel */
+
+.block { margin-bottom: 14px; }
+.block h3 {
+  margin: 0 0 5px;
+  font-family: var(--font-display);
+  font-variation-settings: 'wght' 600, 'wdth' 85;
+  font-size: var(--t-sm);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.facts { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--font-mono); font-size: var(--t-sm); }
+.facts b { color: var(--accent); font-weight: 500; }
+
+/* Track list: Live's own track-header rhythm -- colour strip, index, name. */
+.track {
+  display: grid;
+  grid-template-columns: 3px 18px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  height: 21px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--t-sm);
+}
+.track .strip { height: 100%; background: var(--text-dim); }
+.track .idx { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--text-dim); }
+.track .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track .meta { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--text-dim); }
+
+/* Session grid: slots, exactly as Live draws them. */
+.session { display: grid; gap: 1px; overflow-x: auto; }
+.session .row { display: grid; gap: 1px; }
+.slot {
+  height: 15px;
+  border-radius: 0;
+  background: var(--sunk);
+  border: 1px solid transparent;
+}
+.slot.filled { border-color: rgba(0, 0, 0, .35); }
+
+/* Arrangement: left track headers, horizontal lanes, 0px radii. */
+.ruler {
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 3px;
+  margin-left: 56px;
+}
+.ruler span { flex: 1; border-left: 1px solid var(--line); padding-left: 3px; }
+
+.lane-row {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 2px;
+}
+.lane-row .label {
+  font-size: var(--t-xs);
+  color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lane {
+  position: relative;
+  height: 14px;
+  background: var(--sunk);
+}
+.clip {
+  position: absolute;
+  top: 0; height: 100%;
+  border-radius: 0;
+  border-right: 1px solid var(--bg);
+  /* The signature gesture: clips wipe in left to right, like a playhead. */
+  transform-origin: left center;
+  animation: sweep .28s cubic-bezier(.2,.7,.3,1) both;
+}
+@keyframes sweep { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.markers { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }
+.marker {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--text-dim);
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1px 5px;
+}
+.marker b { color: var(--accent); font-weight: 500; }
+
+/* ---------------------------------------------------------------- about */
+
+dialog {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  padding: 0;
+  max-width: 380px;
+  font-family: var(--font-ui);
+}
+dialog::backdrop { background: rgba(0, 0, 0, .5); }
+.about-body { padding: 16px 18px; }
+.about-body h2 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-variation-settings: 'wght' 700, 'wdth' 85;
+  font-size: 17px;
+}
+.about-body p { margin: 0 0 10px; font-size: var(--t-sm); color: var(--text-dim); }
+.about-body a { color: var(--accent); }
+.about-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+.muted { color: var(--text-dim); font-size: var(--t-xs); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* ---------------------------------------------------------- sound prefs */
+
+.pref {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--t-xs);
+}
+.pref .role { color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; }
+.pref .device {
+  font-family: var(--font-mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pref .device.unset { color: var(--text-dim); font-style: italic; }
+
+/* -------------------------------------------------------------- settings */
+
+.field { display: block; margin-bottom: 6px; }
+.field > span {
+  display: block;
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.field input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--text);
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 7px;
+}
+.field input::placeholder { color: var(--text-dim); }
+.field-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.field-row .hint { margin: 0; }
+code {
+  font-family: var(--font-mono);
+  font-size: .95em;
+  background: var(--sunk);
+  padding: 0 3px;
+  border-radius: var(--radius);
+}

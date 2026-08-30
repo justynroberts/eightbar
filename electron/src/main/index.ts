@@ -1,0 +1,233 @@
+/* MIT License - Copyright (c) fintonlabs.com */
+
+import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { AgentSidecar } from './agent.js';
+import * as settings from './settings.js';
+import { AbletonBridge, AbletonError, AbletonNotRunning } from './bridge.js';
+import { listThemes, loadThemeByName, ROLE_COLOURS } from './theme.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const run = promisify(execFile);
+
+const here = join(fileURLToPath(import.meta.url), '..');
+const devServer = process.env.VITE_DEV_SERVER;
+
+const bridge = new AbletonBridge(
+  process.env.ABLETON_HOST ?? '127.0.0.1',
+  Number(process.env.ABLETON_PORT ?? 9878),
+);
+
+const agent = new AgentSidecar();
+let window: BrowserWindow | null = null;
+
+/** Remembered size and position, so the dock stays where it was put. */
+const store = {
+  width: 440,
+  x: undefined as number | undefined,
+  y: undefined as number | undefined,
+  alwaysOnTop: true,
+};
+
+function createWindow(): void {
+  // A tall, narrow palette that sits beside Live rather than covering it:
+  // full working height, docked to the right edge of the display.
+  const { workArea } = screen.getPrimaryDisplay();
+  const width = Math.min(Math.max(store.width, 360), 620);
+
+  window = new BrowserWindow({
+    width,
+    height: workArea.height,
+    x: store.x ?? workArea.x + workArea.width - width,
+    y: store.y ?? workArea.y,
+    minWidth: 340,
+    maxWidth: 900,
+    minHeight: 420,
+    alwaysOnTop: store.alwaysOnTop,
+    // Live's chrome is dark grey, not black; match it behind the page so
+    // there is no white flash before the theme loads.
+    backgroundColor: '#2a2a2a',
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 14 },
+    webPreferences: {
+      preload: join(here, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  if (devServer) {
+    void window.loadURL(devServer);
+  } else {
+    void window.loadFile(join(here, '../renderer/index.html'));
+  }
+
+  // Links to fintonlabs.com and the like open in the real browser.
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  // Float above Live without stealing focus from it.
+  window.setAlwaysOnTop(store.alwaysOnTop, 'floating');
+  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  const remember = () => {
+    if (!window) return;
+    const [w] = window.getSize();
+    const [x, y] = window.getPosition();
+    store.width = w ?? store.width;
+    store.x = x;
+    store.y = y;
+  };
+  window.on('resized', remember);
+  window.on('moved', remember);
+
+  window.on('closed', () => {
+    window = null;
+  });
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  bridge.close();
+  agent.stop();
+  if (process.platform !== 'darwin') app.quit();
+});
+
+// ---------------------------------------------------------------- IPC
+
+/** Wrap a handler so Ableton failures come back as data, not as thrown IPC. */
+function handle<T>(
+  channel: string,
+  fn: (...args: never[]) => Promise<T>,
+): void {
+  ipcMain.handle(channel, async (_event, ...args) => {
+    try {
+      return { ok: true, value: await fn(...(args as never[])) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const kind =
+        error instanceof AbletonNotRunning
+          ? 'offline'
+          : error instanceof AbletonError
+            ? 'ableton'
+            : 'error';
+      return { ok: false, kind, error: message };
+    }
+  });
+}
+
+handle('ableton:status', async () => {
+  const online = await bridge.isAvailable();
+  if (!online) return { online: false, port: bridge.port };
+  const info = await bridge.call<{ live_version?: string; commands?: string[] }>('ping');
+  return {
+    online: true,
+    port: bridge.port,
+    liveVersion: info.live_version ?? '?',
+    commands: info.commands?.length ?? 0,
+  };
+});
+
+handle('ableton:call', async (command: string, params: Record<string, unknown>) =>
+  bridge.call(command, params ?? {}),
+);
+
+handle('theme:list', async () => listThemes());
+
+handle('theme:load', async (name?: string) => {
+  const tokens = await loadThemeByName(name);
+  if (!tokens) {
+    return { name: 'fallback', isDark: true, vars: {}, roles: ROLE_COLOURS.dark };
+  }
+  return { ...tokens, roles: ROLE_COLOURS[tokens.isDark ? 'dark' : 'light'] };
+});
+
+handle('window:pin', async (pinned: boolean) => {
+  store.alwaysOnTop = pinned;
+  window?.setAlwaysOnTop(pinned, 'floating');
+  return { pinned };
+});
+
+handle('window:snap', async (edge: 'left' | 'right') => {
+  if (!window) return { edge };
+  const { workArea } = screen.getPrimaryDisplay();
+  const [width] = window.getSize();
+  const w = width ?? store.width;
+  window.setBounds({
+    x: edge === 'left' ? workArea.x : workArea.x + workArea.width - w,
+    y: workArea.y,
+    width: w,
+    height: workArea.height,
+  });
+  return { edge };
+});
+
+// The agent streams; each step is pushed to the renderer as it happens rather
+// than batched at the end, so a long arrangement shows progress.
+async function claudeCliAvailable(): Promise<boolean> {
+  try {
+    await run('which', ['claude']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+handle('settings:get', async () => settings.publicView(await claudeCliAvailable()));
+
+handle('settings:set', async (patch: {
+  backend?: settings.BackendChoice;
+  apiKey?: string;
+  model?: string;
+}) => {
+  if (patch.backend) await settings.save({ backend: patch.backend });
+  if (patch.model !== undefined) await settings.save({ model: patch.model || undefined });
+  if (patch.apiKey !== undefined) await settings.setApiKey(patch.apiKey);
+  // Restart the core so the new credentials are picked up immediately.
+  await agent.reconfigure(await settings.sidecarEnv());
+  return settings.publicView(await claudeCliAvailable());
+});
+
+ipcMain.handle('agent:chat', async (event, message: string) => {
+  const send = (payload: unknown) => {
+    if (!event.sender.isDestroyed()) event.sender.send('agent:event', payload);
+  };
+  try {
+    agent.envOverrides = await settings.sidecarEnv();
+    await agent.chat(message, send);
+    send({ kind: 'end' });
+    return { ok: true };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    send({ kind: 'error', message: detail });
+    send({ kind: 'end' });
+    return { ok: false, error: detail };
+  }
+});
+
+handle('agent:reset', async () => {
+  await agent.reset();
+  return { ok: true };
+});
+
+handle('agent:status', async () => ({ running: agent.running }));
+
+handle('app:info', async () => ({
+  version: app.getVersion(),
+  remoteScriptInstalled: existsSync(
+    join(app.getPath('home'), 'Music/Ableton/User Library/Remote Scripts/AbletonAI'),
+  ),
+}));

@@ -1,0 +1,566 @@
+"""The tool layer and a full track build, against the simulated Live."""
+
+from __future__ import annotations
+
+import pytest
+from fake_live import FakeBridge
+
+from ableton_ai.schemas import render_for_text_protocol, tool_schemas
+from ableton_ai.tools import ToolError, Toolbox
+
+
+@pytest.fixture
+def box() -> Toolbox:
+    return Toolbox(FakeBridge())
+
+
+# ------------------------------------------------------------- schemas
+
+def test_every_tool_has_a_schema_and_a_description():
+    schemas = tool_schemas()
+    names = {s["name"] for s in schemas}
+    exposed = {a[len("tool_"):] for a in dir(Toolbox) if a.startswith("tool_")}
+    assert names == exposed
+    for schema in schemas:
+        assert schema["description"] != "No description."
+        assert schema["input_schema"]["type"] == "object"
+
+
+def test_schema_types_are_resolved_not_stringified():
+    """PEP 563 turns hints into strings; the generator must resolve them."""
+    schema = next(s for s in tool_schemas() if s["name"] == "create_chord_clip")
+    props = schema["input_schema"]["properties"]
+    assert props["track_index"]["type"] == "integer"
+    assert props["bars"]["type"] == "number"
+    assert props["smooth_voicing"]["type"] == "boolean"
+    assert props["key"]["type"] == "string"
+    assert schema["input_schema"]["required"] == ["track_index"]
+
+
+def test_text_protocol_renders_every_tool():
+    text = render_for_text_protocol(tool_schemas())
+    for schema in tool_schemas():
+        assert schema["name"] in text
+
+
+# --------------------------------------------------------------- tools
+
+def test_unknown_tool_is_an_error(box):
+    with pytest.raises(ToolError, match="no such tool"):
+        box.call("teleport", {})
+
+
+def test_bad_arguments_surface_as_tool_errors(box):
+    with pytest.raises(ToolError, match="bad arguments"):
+        box.call("create_drum_clip", {"nonsense": 1})
+
+
+def test_live_errors_become_tool_errors(box):
+    with pytest.raises(ToolError):
+        box.call("create_drum_clip", {"track_index": 99})
+
+
+def test_chord_clip_reports_the_chords_it_chose(box):
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    result = box.call("create_chord_clip", {
+        "track_index": 0, "key": "C", "scale": "minor",
+        "degrees": "1-6-4-5", "bars": 8,
+    })
+    assert result["chords"][0].startswith("Cm")
+    assert len(result["chords"]) == 4
+    assert result["notes_written"] > 0
+
+
+def test_named_progression_is_accepted(box):
+    box.call("create_track", {"name": "Chords"})
+    result = box.call("create_chord_clip",
+                      {"track_index": 0, "degrees": "andalusian"})
+    assert len(result["chords"]) == 4
+
+
+def test_placeholder_set_creates_audio_tracks(box):
+    result = box.call("create_placeholder_set", {"roles": ["vocal", "vocal", "fx"]})
+    assert result["count"] == 3
+    assert [t["kind"] for t in box.bridge.tracks] == ["audio"] * 3
+    assert box.bridge.tracks[0]["name"] == "Vocal 1"
+
+
+def test_variation_set_fills_consecutive_slots(box):
+    box.call("create_track", {"name": "Drums", "role": "drums"})
+    box.call("create_drum_clip", {"track_index": 0, "pattern": "house", "bars": 4})
+    result = box.call("create_variation_set",
+                      {"track_index": 0, "clip_index": 0, "count": 4, "start_slot": 0})
+    assert result["clip_indices"] == [0, 1, 2, 3]
+    slots = box.bridge.tracks[0]["clips"]
+    signatures = {len(slots[i]["notes"]) for i in range(4)}
+    assert len(signatures) > 1, "variations should differ in density"
+
+
+def test_variation_of_an_empty_clip_is_a_clear_error(box):
+    box.call("create_track", {"name": "Empty"})
+    box.call("write_clip_notes", {"track_index": 0, "clip_index": 0, "notes": []})
+    with pytest.raises(ToolError, match="no MIDI notes"):
+        box.call("create_clip_variation", {"track_index": 0, "clip_index": 0})
+
+
+def test_transpose_moves_every_note(box):
+    box.call("create_track", {"name": "Bass"})
+    box.call("create_bass_clip", {"track_index": 0, "bars": 4})
+    before = [n["pitch"] for n in box.bridge.tracks[0]["clips"][0]["notes"]]
+    box.call("transpose_clip",
+             {"track_index": 0, "clip_index": 0, "semitones": 5})
+    after = [n["pitch"] for n in box.bridge.tracks[0]["clips"][0]["notes"]]
+    assert after == [p + 5 for p in before]
+
+
+def test_write_clip_notes_rejects_a_note_without_a_pitch(box):
+    box.call("create_track", {"name": "X"})
+    with pytest.raises(ToolError, match="pitch"):
+        box.call("write_clip_notes",
+                 {"track_index": 0, "notes": [{"start": 0.0}]})
+
+
+# --------------------------------------------------- full arrangement
+
+def _build_track(box: Toolbox, seconds: int = 360, tempo: float = 128) -> dict:
+    """Build a complete EDM track the way the agent is meant to."""
+    box.call("set_tempo", {"tempo": tempo})
+
+    layout = [
+        ("Kick", "kick", "drum", {"pattern": "four_on_floor"}),
+        ("Drums", "drums", "drum", {"pattern": "tech_house"}),
+        ("Bass", "bass", "bass", {}),
+        ("Chords", "chords", "chord", {}),
+        ("Hook", "hook", "hook", {}),
+        ("Riser", "riser", "riser", {}),
+        ("Impact", "impact", "impact", {}),
+    ]
+    tracks = []
+    for index, (name, role, kind, extra) in enumerate(layout):
+        box.call("create_track", {"name": name, "role": role})
+        if kind == "drum":
+            box.call("create_drum_clip",
+                     {"track_index": index, "bars": 4, **extra})
+        elif kind == "bass":
+            box.call("create_bass_clip",
+                     {"track_index": index, "key": "C", "scale": "minor", "bars": 8})
+        elif kind == "chord":
+            box.call("create_chord_clip",
+                     {"track_index": index, "key": "C", "scale": "minor", "bars": 8})
+        elif kind == "hook":
+            box.call("create_hook_clip",
+                     {"track_index": index, "key": "C", "scale": "minor", "bars": 8})
+        elif kind == "riser":
+            box.call("create_riser_clip",
+                     {"track_index": index, "key": "C", "scale": "minor", "bars": 8})
+        elif kind == "impact":
+            box.call("create_impact_clip", {"track_index": index, "bars": 1})
+
+        entry = {"track_index": index, "clip_index": 0, "role": role}
+        # Give the looped parts a ladder of variations to draw from.
+        if role in ("kick", "drums", "bass", "chords"):
+            made = box.call("create_variation_set",
+                            {"track_index": index, "clip_index": 0,
+                             "count": 4, "start_slot": 0})
+            entry = {"track_index": index, "role": role,
+                     "clip_indices": made["clip_indices"]}
+        tracks.append(entry)
+
+    box.call("create_placeholder_set", {"roles": ["vocal", "fx"]})
+
+    plan = box.call("plan_arrangement",
+                    {"target_seconds": seconds, "tempo": tempo, "template": "edm"})
+    result = box.call("arrange_to_timeline",
+                      {"sections": plan["sections"], "tracks": tracks})
+    return {"plan": plan, "result": result}
+
+
+def test_full_six_minute_edm_build(box):
+    built = _build_track(box, seconds=360, tempo=128)
+    plan, result = built["plan"], built["result"]
+
+    assert plan["duration"] == "6:00"
+    assert plan["total_bars"] == 192
+    assert result["placements"] > 0
+    # The timeline must actually reach ~6 minutes.
+    assert 330 <= result["duration_seconds"] <= 390
+
+
+def test_arrangement_places_impacts_once_per_drop(box):
+    built = _build_track(box)
+    impact_lane = box.bridge.arrangement[6]
+    drops = [s for s in built["plan"]["sections"] if s["kind"] == "drop"]
+    assert len(impact_lane) == len(drops)
+    for clip, section in zip(sorted(impact_lane, key=lambda c: c["start_bars"]), drops):
+        assert clip["start_bars"] == section["start_bar"]
+
+
+def test_risers_finish_exactly_on_the_drop(box):
+    built = _build_track(box)
+    riser_lane = sorted(box.bridge.arrangement[5], key=lambda c: c["start_bars"])
+    builds = [s for s in built["plan"]["sections"] if s["kind"] == "build"]
+    assert len(riser_lane) == len(builds)
+    for clip, section in zip(riser_lane, builds):
+        end = clip["start_bars"] + clip["length_bars"]
+        assert end == section["end_bar"], "a riser must land on the section boundary"
+
+
+def test_energy_picks_bigger_variations_for_drops(box):
+    """Quiet sections should draw earlier (stripped) variations than drops do."""
+    built = _build_track(box)
+    detail = built["result"]["detail"]
+    by_kind = {s["name"]: s["kind"] for s in built["plan"]["sections"]}
+    intro = [d["clip_index"] for d in detail
+             if by_kind.get(d["section"]) == "intro" and d["role"] == "drums"]
+    drop = [d["clip_index"] for d in detail
+            if by_kind.get(d["section"]) == "drop" and d["role"] == "drums"]
+    assert intro and drop
+    assert min(intro) < max(drop)
+
+
+def test_arrangement_writes_locators_for_every_section(box):
+    built = _build_track(box)
+    assert len(box.bridge.locators) == len(built["plan"]["sections"])
+    assert box.bridge.locators[0]["start_bar"] == 0
+    assert box.bridge.view == "arrangement"
+
+
+def test_rearranging_clears_the_previous_pass(box):
+    """Arranging twice must replace the timeline, not stack a second copy on it."""
+    _build_track(box)
+    plan = box.call("plan_arrangement",
+                    {"target_seconds": 360, "tempo": 128, "template": "edm"})
+    tracks = [{"track_index": 0, "clip_index": 0, "role": "kick"}]
+
+    box.call("arrange_to_timeline",
+             {"sections": plan["sections"], "tracks": tracks, "clear_first": True})
+    after_first = len(box.bridge.arrangement[0])
+
+    box.call("arrange_to_timeline",
+             {"sections": plan["sections"], "tracks": tracks, "clear_first": True})
+    assert len(box.bridge.arrangement[0]) == after_first
+
+    # And without clearing, the second pass really does stack.
+    box.call("arrange_to_timeline",
+             {"sections": plan["sections"], "tracks": tracks, "clear_first": False})
+    assert len(box.bridge.arrangement[0]) == after_first * 2
+
+
+def test_arrange_without_sections_is_a_clear_error(box):
+    with pytest.raises(ToolError, match="plan_arrangement"):
+        box.call("arrange_to_timeline", {"sections": [], "tracks": []})
+
+
+# ------------------------------------------- regressions from the live run
+
+def test_every_generated_role_gets_used_in_edm_templates():
+    """A track built for a role must not sit silent through the whole song.
+
+    Regression: `big_room` listed `sub` but never `bass` in its drops, so a
+    Bass track played in exactly one section out of nine.
+    """
+    from ableton_ai import arrangement
+
+    generated = {"kick", "drums", "bass", "chords", "hook", "riser", "impact"}
+    for name in ("house", "big_room", "progressive_house", "future_bass",
+                 "trance", "techno", "melodic_techno"):
+        used = {r for s in arrangement.plan(360, 128, name) for r in s.roles}
+        for role in generated & used:
+            sections = [s for s in arrangement.plan(360, 128, name)
+                        if role in s.roles]
+            bars = sum(s.bars for s in sections)
+            assert bars >= 16, f"{name}: role {role!r} only plays {bars} bars"
+
+
+def test_bass_plays_through_the_drops(box):
+    """The specific shape of the live-run bug: bass idle during drops."""
+    from ableton_ai import arrangement
+
+    for name in ("house", "big_room", "trance"):
+        for section in arrangement.plan(360, 128, name):
+            if section.kind == "drop":
+                assert "bass" in section.roles or "sub" in section.roles, \
+                    f"{name}: {section.name} at bar {section.start_bar} has no low end"
+
+
+def test_a_missing_role_falls_back_to_a_neighbour(box):
+    """A set with Bass but no Sub must still get bass through sub-only sections."""
+    box.call("create_track", {"name": "Bass", "role": "bass"})
+    box.call("create_bass_clip", {"track_index": 0, "bars": 4})
+
+    sections = [{"name": "drop", "kind": "drop", "start_bar": 0, "bars": 16,
+                 "energy": 1.0, "roles": ["sub"]}]
+    result = box.call("arrange_to_timeline", {
+        "sections": sections,
+        "tracks": [{"track_index": 0, "clip_index": 0, "role": "bass"}],
+    })
+    assert result["placements"] == 1, "bass should stand in for the missing sub"
+
+
+def test_a_role_with_no_fallback_is_simply_skipped(box):
+    box.call("create_track", {"name": "Drums", "role": "drums"})
+    box.call("create_drum_clip", {"track_index": 0, "bars": 4})
+    sections = [{"name": "breakdown", "kind": "breakdown", "start_bar": 0,
+                 "bars": 16, "energy": 0.3, "roles": ["vocal"]}]
+    result = box.call("arrange_to_timeline", {
+        "sections": sections,
+        "tracks": [{"track_index": 0, "clip_index": 0, "role": "drums"}],
+    })
+    assert result["placements"] == 0
+
+
+# ------------------------------------------------------ sound preferences
+
+def test_sound_preferences_round_trip(tmp_path):
+    from ableton_ai.sounds import SoundPreferences
+
+    prefs = SoundPreferences(tmp_path / "sounds.json")
+    assert prefs.for_role("bass") == "Instruments/Operator"   # stock default
+
+    prefs.set_role("bass", "Plugins/VST3/Xfer Records/Serum 2")
+    prefs.add_favourite("Plugins/VST3/Xfer Records/Serum 2")
+    assert prefs.for_role("bass") == "Plugins/VST3/Xfer Records/Serum 2"
+
+    # Survives a reload from disk -- the point of the feature.
+    reloaded = SoundPreferences(tmp_path / "sounds.json")
+    assert reloaded.for_role("bass") == "Plugins/VST3/Xfer Records/Serum 2"
+    assert "Serum 2" in reloaded.describe()
+
+    reloaded.clear_role("bass")
+    assert reloaded.for_role("bass") == "Instruments/Operator"
+
+
+def test_corrupt_preferences_file_does_not_crash(tmp_path):
+    path = tmp_path / "sounds.json"
+    path.write_text("{ not json at all")
+    from ableton_ai.sounds import SoundPreferences
+
+    prefs = SoundPreferences(path)
+    assert prefs.for_role("bass") == "Instruments/Operator"
+    assert prefs.favourites() == []
+
+
+def test_set_sound_preference_rejects_an_unknown_role(box, tmp_path):
+    from ableton_ai.sounds import SoundPreferences
+
+    box.sounds = SoundPreferences(tmp_path / "s.json")
+    with pytest.raises(ToolError, match="unknown role"):
+        box.call("set_sound_preference", {"role": "kazoo", "path": "x"})
+
+
+def test_load_sound_uses_the_saved_role_preference(box, tmp_path):
+    from ableton_ai.sounds import SoundPreferences
+
+    box.sounds = SoundPreferences(tmp_path / "s.json")
+    box.call("create_track", {"name": "Bass", "role": "bass"})
+    box.call("set_sound_preference",
+             {"role": "bass", "path": "Plugins/VST3/Xfer Records/Serum 2"})
+
+    result = box.call("load_sound", {"track_index": 0, "role": "bass"})
+    assert result["path"] == "Plugins/VST3/Xfer Records/Serum 2"
+    assert result["resolved_from"] == "role:bass"
+    assert box.bridge.tracks[0]["devices"]
+
+
+def test_load_sound_needs_something_to_go_on(box):
+    box.call("create_track", {"name": "X"})
+    with pytest.raises(ToolError, match="needs one of"):
+        box.call("load_sound", {"track_index": 0})
+
+
+# --------------------------------------------------------------- mixing
+
+def test_gain_staging_puts_the_kick_on_top(box):
+    """Everything should sit under the kick, which is the reference."""
+    for name, role in (("Kick", "kick"), ("Bass", "bass"),
+                       ("Pad", "pad"), ("Hook", "hook")):
+        box.call("create_track", {"name": name, "role": role})
+
+    result = box.call("mix_levels", {})
+    by_role = {a["role"]: a["gain_db"] for a in result["applied"]}
+
+    assert by_role["kick"] == 0.0
+    assert by_role["bass"] < by_role["kick"]
+    assert by_role["pad"] < by_role["hook"] < by_role["kick"]
+    # And the faders actually moved in Live.
+    volumes = [t["volume"] for t in box.bridge.tracks]
+    assert volumes[0] > volumes[3] > volumes[2]
+
+
+def test_frequency_separation_spares_the_low_end(box):
+    box.call("create_track", {"name": "Kick", "role": "kick"})
+    box.call("create_track", {"name": "Pad", "role": "pad"})
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+
+    result = box.call("frequency_separation", {})
+    filtered = {f["role"] for f in result["filtered"]}
+    spared = {s["role"] for s in result["skipped"]}
+
+    assert "kick" in spared, "the kick must keep its low end"
+    assert {"pad", "chords"} <= filtered
+
+
+def test_add_eq_loads_one_and_sets_the_filter(box):
+    box.call("create_track", {"name": "Pad", "role": "pad"})
+    result = box.call("add_eq", {"track_index": 0, "high_pass_hz": 250})
+
+    assert "EQ" in result["device"]
+    assert result["not_found"] == []
+    assert any("1 Frequency" in s and "250" in s for s in result["set"])
+
+
+def test_meters_say_so_when_the_transport_is_stopped(box):
+    box.call("create_track", {"name": "Kick", "role": "kick"})
+    stopped = box.call("read_meters", {})
+    assert "warning" in stopped and "stopped" in stopped["warning"]
+
+    box.call("transport", {"action": "play"})
+    playing = box.call("read_meters", {})
+    assert "warning" not in playing
+    assert playing["tracks"][0]["level"] > 0
+
+
+def test_db_conversion_round_trips():
+    from ableton_ai import mixing
+
+    assert mixing.db_to_live(0.0) == pytest.approx(mixing.UNITY)
+    for db in (-12.0, -6.0, -3.0, 0.0):
+        assert mixing.live_to_db(mixing.db_to_live(db)) == pytest.approx(db, abs=0.01)
+    # Clamped at the ends rather than wrapping.
+    assert mixing.db_to_live(-999) == 0.0
+    assert mixing.db_to_live(999) == 1.0
+
+
+# ------------------------------- arrangement input validation (regressions)
+
+def test_a_null_in_the_input_names_the_offending_field(box):
+    """Regression: nulls raised a bare TypeError reported as "bad arguments"."""
+    box.call("create_track", {"name": "Kick", "role": "kick"})
+    box.call("create_drum_clip", {"track_index": 0, "bars": 4})
+    tracks = [{"track_index": 0, "clip_index": 0, "role": "kick"}]
+    section = {"name": "drop", "start_bar": 0, "bars": 16,
+               "energy": 1.0, "roles": ["kick"]}
+
+    with pytest.raises(ToolError, match="drop has no bars"):
+        box.call("arrange_to_timeline",
+                 {"sections": [{**section, "bars": None}], "tracks": tracks})
+
+    with pytest.raises(ToolError, match="no start_bar"):
+        box.call("arrange_to_timeline",
+                 {"sections": [{**section, "start_bar": None}], "tracks": tracks})
+
+    with pytest.raises(ToolError, match="no track_index"):
+        box.call("arrange_to_timeline",
+                 {"sections": [section],
+                  "tracks": [{"track_index": None, "role": "kick"}]})
+
+
+def test_a_non_object_section_is_reported_clearly(box):
+    box.call("create_track", {"name": "Kick", "role": "kick"})
+    box.call("create_drum_clip", {"track_index": 0, "bars": 4})
+    with pytest.raises(ToolError, match="not an object"):
+        box.call("arrange_to_timeline", {
+            "sections": [10],
+            "tracks": [{"track_index": 0, "clip_index": 0, "role": "kick"}],
+        })
+
+
+def test_null_roles_means_silence_not_a_crash(box):
+    """A section with nothing playing is legitimate, not an error."""
+    box.call("create_track", {"name": "Kick", "role": "kick"})
+    box.call("create_drum_clip", {"track_index": 0, "bars": 4})
+    result = box.call("arrange_to_timeline", {
+        "sections": [{"name": "silence", "start_bar": 0, "bars": 8,
+                      "energy": 0.0, "roles": None}],
+        "tracks": [{"track_index": 0, "clip_index": 0, "role": "kick"}],
+    })
+    assert result["placements"] == 0
+
+
+def test_placeholder_tracks_are_skipped_not_fatal(box):
+    """Vocals and FX have no clip yet -- that must not stop the arrangement."""
+    box.call("create_track", {"name": "Kick", "role": "kick"})
+    box.call("create_drum_clip", {"track_index": 0, "bars": 4})
+    box.call("create_placeholder_set", {"roles": ["vocal", "fx"]})
+
+    plan = box.call("plan_arrangement",
+                    {"target_seconds": 240, "tempo": 128, "template": "edm"})
+    result = box.call("arrange_to_timeline", {
+        "sections": plan["sections"],
+        "tracks": [
+            {"track_index": 0, "clip_index": 0, "role": "kick"},
+            {"track_index": 1, "clip_index": None, "role": "vocal"},
+            {"track_index": 2, "clip_index": 0, "role": "fx"},
+        ],
+    })
+    assert result["placements"] > 0, "the kick should still have been placed"
+    skipped = {s["role"] for s in result["skipped_tracks"]}
+    assert skipped == {"vocal", "fx"}
+    assert "note" in result
+
+
+def test_an_internal_error_is_not_reported_as_bad_arguments(box):
+    """The handler used to relabel any internal TypeError as a signature fault."""
+    with pytest.raises(ToolError) as caught:
+        box.call("create_drum_clip", {"track_index": 0, "pattern": "nope"})
+    assert "bad arguments" not in str(caught.value)
+
+    # A genuine signature mistake still says so.
+    with pytest.raises(ToolError, match="bad arguments"):
+        box.call("create_drum_clip", {"not_a_parameter": 1})
+
+
+# ------------------------------------------------------ remembered rules
+
+def test_rules_are_remembered_and_reach_the_prompt(tmp_path):
+    from ableton_ai.sounds import SoundPreferences
+
+    prefs = SoundPreferences(tmp_path / "preferences.json")
+    assert prefs.rules() == []
+
+    prefs.remember("Always use Serum for bass")
+    prefs.remember("Start tracks at 138bpm")
+    assert len(prefs.rules()) == 2
+
+    # Saying the same thing twice must not accumulate duplicates.
+    prefs.remember("always use serum for bass")
+    assert len(prefs.rules()) == 2
+
+    reloaded = SoundPreferences(tmp_path / "preferences.json")
+    described = reloaded.describe()
+    assert "Standing instructions" in described
+    assert "Serum for bass" in described
+
+
+def test_forgetting_removes_only_the_matching_rule(tmp_path):
+    from ableton_ai.sounds import SoundPreferences
+
+    prefs = SoundPreferences(tmp_path / "preferences.json")
+    prefs.remember("Always use Serum for bass")
+    prefs.remember("Start tracks at 138bpm")
+
+    remaining = prefs.forget("serum")
+    assert remaining == ["Start tracks at 138bpm"]
+    assert SoundPreferences(tmp_path / "preferences.json").rules() == remaining
+
+
+def test_an_explicit_path_never_inherits_the_real_user_config(tmp_path):
+    """Regression: the legacy-file fallback leaked ~/.config into every store."""
+    from ableton_ai.sounds import SoundPreferences
+
+    prefs = SoundPreferences(tmp_path / "preferences.json")
+    assert prefs.rules() == []
+    assert prefs.favourites() == []
+    assert prefs.for_role("bass") == "Instruments/Operator"   # the stock default
+
+
+def test_remember_and_recall_through_the_tools(box, tmp_path):
+    from ableton_ai.sounds import SoundPreferences
+
+    box.sounds = SoundPreferences(tmp_path / "preferences.json")
+    box.call("remember", {"rule": "Always add a riser before the drop"})
+    recalled = box.call("recall", {})
+    assert recalled["rules"] == ["Always add a riser before the drop"]
+
+    box.call("forget", {"about": "riser"})
+    assert box.call("recall", {})["rules"] == []

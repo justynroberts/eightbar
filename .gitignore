@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+*.egg-info/
+.pytest_cache/
+.DS_Store
+
+# Electron
+electron/node_modules/
+electron/dist/
+electron/release/
+
+# Generated audio and learned corpus state
+*.wav
+*.aif

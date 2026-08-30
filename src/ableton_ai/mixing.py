@@ -1,0 +1,168 @@
+"""Gain staging, frequency separation and a master chain.
+
+What is actually possible through Live's API is worth stating plainly, because
+it decides what this module can honestly claim:
+
+  Possible   -- track volume, pan and sends; loading stock devices and setting
+                every one of their parameters; reading each track's output
+                meter while Live is playing; automation envelopes.
+  Not possible -- hearing anything. There is no spectrum, no LUFS, no loudness
+                match. Nothing here is a substitute for listening.
+
+So this is *structural* mixing: put faders at sensible relative levels for the
+role each track plays, keep instruments out of each other's frequency range,
+and build a defensible master chain. The judgement calls stay with the producer.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+# Live's volume parameter is 0..1 and maps non-linearly onto decibels, with
+# 0.85 sitting at unity (0 dB). These are the useful anchors.
+UNITY = 0.85
+
+
+def db_to_live(db: float) -> float:
+    """Approximate Live's fader curve for small trims around unity.
+
+    Live's mapping is not published; this is fitted to the region that matters
+    for gain staging (roughly -24 dB to +6 dB) and is accurate to about half a
+    decibel there. Outside that range treat it as indicative only.
+    """
+    # Live's fader is roughly linear-in-dB near unity at ~0.025 units per dB.
+    return max(0.0, min(1.0, UNITY + db * 0.025))
+
+
+def live_to_db(value: float) -> float:
+    return (value - UNITY) / 0.025
+
+
+@dataclass(frozen=True)
+class RoleMix:
+    """A starting level and frequency treatment for one musical role."""
+
+    gain_db: float
+    high_pass_hz: float | None
+    low_pass_hz: float | None
+    pan: float
+    note: str
+    reverb: float = 0.0
+    delay: float = 0.0
+
+
+# A conventional EDM balance, with the kick as the reference at unity.
+# These are starting points that leave headroom, not finished mixes.
+# Send amounts matter as much as levels, and reverb on drums is the most
+# common way a dance mix loses its punch. The kick gets none at all; hats and
+# claps get a trace; bass gets none, because reverb below 150Hz is just mud.
+# The wet tracks are the ones with space around them -- pads, leads, vocals.
+BALANCE: dict[str, RoleMix] = {
+    "kick":   RoleMix(0.0,   None,  None, 0.0,  "Reference. Everything else sits under this. No reverb, ever.", 0.00, 0.00),
+    "sub":    RoleMix(-2.0,  None,  120,  0.0,  "Mono and low-passed; nothing above 120Hz. Bone dry.", 0.00, 0.00),
+    "bass":   RoleMix(-3.0,  40,    None, 0.0,  "High-passed at 40 to clear the kick's floor. Dry -- reverb here is mud.", 0.00, 0.00),
+    "drums":  RoleMix(-4.0,  120,   None, 0.0,  "Hats and claps out of the low end. A trace of reverb only.", 0.06, 0.04),
+    "perc":   RoleMix(-8.0,  200,   None, 0.25, "Panned off-centre. Takes a little more space than the kit.", 0.14, 0.10),
+    "chords": RoleMix(-8.0,  200,   None, 0.0,  "High-passed hard; chords do not need low end.", 0.22, 0.12),
+    "arp":    RoleMix(-10.0, 300,   None, -0.3, "Panned opposite the perc. Delay suits it more than reverb.", 0.16, 0.28),
+    "pad":    RoleMix(-12.0, 250,   8000, 0.0,  "Wide and quiet; rolled off top and bottom. The wettest thing in the mix.", 0.40, 0.10),
+    "lead":   RoleMix(-6.0,  200,   None, 0.0,  "Centre, forward, but under the kick.", 0.18, 0.22),
+    "hook":   RoleMix(-5.0,  250,   None, 0.0,  "The part people remember; keep it audible and fairly dry.", 0.14, 0.18),
+    "vocal":  RoleMix(-4.0,  100,   None, 0.0,  "Centre and prominent once recorded.", 0.24, 0.18),
+    "riser":  RoleMix(-10.0, 300,   None, 0.0,  "Rises into the drop; wet, because it is pure effect.", 0.38, 0.20),
+    "impact": RoleMix(-3.0,  None,  None, 0.0,  "Short and loud by design. A long tail is the point.", 0.30, 0.05),
+    "fx":     RoleMix(-12.0, None,  None, 0.0,  "Support, not foreground.", 0.35, 0.25),
+}
+
+# EQ Eight parameter names vary by band and channel. Rather than hardcode them,
+# the tool discovers what a loaded EQ Eight actually exposes and matches by
+# fragment -- the same approach the patch recipes use.
+EQ_DEVICE = "Audio Effects/EQ Eight"
+COMPRESSOR_DEVICE = "Audio Effects/Compressor"
+GLUE_DEVICE = "Audio Effects/Glue Compressor"
+LIMITER_DEVICE = "Audio Effects/Limiter"
+
+
+@dataclass(frozen=True)
+class CompressorSetting:
+    """A compressor starting point, in real units rather than 0..1."""
+
+    threshold_db: float
+    ratio: float
+    attack_ms: float
+    release_ms: float
+    makeup_db: float
+    why: str
+
+
+# Attack and release are the settings that matter and the ones most often got
+# wrong. Slow attack lets the transient through, which is what keeps a kick
+# punchy; fast release lets the track breathe between hits.
+COMPRESSION: dict[str, CompressorSetting] = {
+    "punch": CompressorSetting(
+        -18, 4.0, 10.0, 120.0, 3.0,
+        "Slow attack keeps the transient, fast release lets it breathe. Drums.",
+    ),
+    "glue": CompressorSetting(
+        -24, 2.0, 30.0, 300.0, 2.0,
+        "Gentle and slow -- holds a group together without flattening it.",
+    ),
+    "control": CompressorSetting(
+        -20, 3.0, 5.0, 150.0, 3.0,
+        "Evens out level. Bass and vocals, where consistency matters most.",
+    ),
+    "squeeze": CompressorSetting(
+        -26, 6.0, 1.0, 80.0, 5.0,
+        "Aggressive and obvious. A deliberate effect, not a corrective one.",
+    ),
+    "master": CompressorSetting(
+        -14, 2.0, 30.0, 400.0, 1.0,
+        "Barely working -- 1-2dB of movement at most on the master bus.",
+    ),
+}
+
+# Which compressor style suits which role, when nothing is specified.
+ROLE_COMPRESSION: dict[str, str] = {
+    "kick": "punch", "drums": "punch", "perc": "punch",
+    "bass": "control", "sub": "control", "vocal": "control",
+    "chords": "glue", "pad": "glue", "arp": "glue",
+    "lead": "control", "hook": "control",
+}
+
+
+def compression_for(role: str) -> CompressorSetting:
+    return COMPRESSION[ROLE_COMPRESSION.get((role or "").lower(), "glue")]
+
+# A defensible master chain. Deliberately conservative: this is a safety net
+# and a loudness ceiling, not a mastering engineer.
+MASTER_CHAIN = (
+    (EQ_DEVICE, "Gentle corrective EQ, high-passed below 25Hz."),
+    (LIMITER_DEVICE, "Ceiling at -0.3dB to stop inter-sample peaks."),
+)
+
+
+def balance_for(role: str) -> RoleMix:
+    return BALANCE.get((role or "").lower(), BALANCE["fx"])
+
+
+def headroom_advice(track_count: int) -> str:
+    """How much to pull the master down so a busy mix does not clip.
+
+    The convention is to leave the mix bus peaking between -6 and -3dB before
+    any limiting. That headroom is what gives EQ and multiband compression room
+    to work; mixing into a limiter that is already clamping does not.
+    """
+    if track_count <= 6:
+        return (
+            "Aim for the mix bus peaking around -6dB before limiting. "
+            "Unity is fine with this few tracks."
+        )
+    if track_count <= 12:
+        return (
+            "Pull the master down 2-3dB. Target -6 to -3dB peak on the mix bus "
+            "before any limiting."
+        )
+    return (
+        "Pull the master down 4-6dB and check the meter on the loudest drop. "
+        "Target -6 to -3dB peak on the mix bus before limiting."
+    )

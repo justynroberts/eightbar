@@ -1,0 +1,80 @@
+{
+  "name": "eightbar",
+  "version": "0.1.0",
+  "description": "Natural-language music production for Ableton Live",
+  "main": "dist/main/index.js",
+  "author": "Justyn Roberts",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron -c cyan,magenta \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "build:main": "node scripts/build-main.mjs",
+    "build:renderer": "vite build",
+    "build": "npm run typecheck && npm run build:main && npm run build:renderer",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev:renderer": "vite",
+    "dev:electron": "cross-env VITE_DEV_SERVER=http://127.0.0.1:7818 node scripts/build-main.mjs --watch --dev"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "electron": "^33.3.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "@electron/notarize": "^2.5.0"
+  },
+  "build": {
+    "appId": "com.fintonlabs.eightbar",
+    "productName": "Eightbar",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../remote_script",
+        "to": "remote_script"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.music",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.icns",
+      "identity": "Justyn Roberts (2H574B6N62)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false
+    },
+    "dmg": {
+      "title": "Eightbar ${version}"
+    },
+    "afterSign": "scripts/notarize.cjs",
+    "afterAllArtifactBuild": "scripts/staple-dmg.cjs"
+  },
+  "productName": "Eightbar"
+}

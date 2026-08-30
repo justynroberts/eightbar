@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<!-- MIT License - Copyright (c) fintonlabs.com -->
+<html lang="en" data-theme="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'">
+<title>Eightbar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,300..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header class="titlebar">
+  <div class="drag-region"></div>
+  <div class="wordmark">eight<span>bar</span></div>
+  <div class="titlebar-tools">
+    <button class="icon" id="pin" title="Keep above Ableton" aria-pressed="true">⇧</button>
+    <button class="icon" id="snap" title="Snap to the other edge">⇄</button>
+    <button class="icon" id="about-open" aria-label="About this app">i</button>
+  </div>
+</header>
+
+<div class="statusbar">
+  <span class="pill"><i class="led" id="led"></i><span id="live-state">connecting</span></span>
+  <span class="pill" id="tempo">— bpm</span>
+  <span class="pill" id="tracks">— trk</span>
+  <button class="icon" id="refresh" title="Reload from Live">⟳</button>
+</div>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="chat" aria-selected="true">Chat</button>
+  <button role="tab" data-tab="set" aria-selected="false">Set</button>
+  <button role="tab" data-tab="arrange" aria-selected="false">Arrange</button>
+  <button role="tab" data-tab="sounds" aria-selected="false">Sounds</button>
+</nav>
+
+<main>
+
+  <section class="panel" id="tab-chat">
+    <div class="scroll" id="transcript">
+      <div class="placeholder" id="placeholder">
+        <p>Ask for a progression, a loop, or a whole arrangement.</p>
+      </div>
+    </div>
+    <div class="suggestions" id="suggestions">
+      <button>Rising chord progression in C minor</button>
+      <button>Dark rolling tech house loop at 128</button>
+      <button>Arrange this into a 6 minute track</button>
+      <button>Build-up and riser into the first drop</button>
+      <button>Four variations of the drums</button>
+      <button>Give every track an instrument</button>
+    </div>
+    <div class="composer">
+      <textarea id="input" rows="1" placeholder="Ask for anything…"></textarea>
+      <button class="send" id="send">Send</button>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-set" hidden>
+    <div class="scroll" id="setpanel"><p class="empty">Waiting for Ableton…</p></div>
+  </section>
+
+  <section class="panel" id="tab-arrange" hidden>
+    <div class="scroll" id="arrangepanel"><p class="empty">Waiting for Ableton…</p></div>
+  </section>
+
+  <section class="panel" id="tab-sounds" hidden>
+    <div class="scroll" id="soundspanel">
+      <div class="block">
+        <h3>Skin</h3>
+        <select id="theme-select" title="Follow one of Ableton's own themes"></select>
+        <p class="hint" id="skin-note"></p>
+      </div>
+      <div class="block">
+        <h3>Model</h3>
+        <label class="field">
+          <span>Backend</span>
+          <select id="backend-select">
+            <option value="auto">Auto — API key if set, else Claude CLI</option>
+            <option value="anthropic">Anthropic API (needs a key)</option>
+            <option value="claude-cli">Claude CLI (no key needed)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>API key</span>
+          <input type="password" id="api-key" placeholder="sk-ant-… (optional)"
+                 autocomplete="off" spellcheck="false">
+        </label>
+        <div class="field-row">
+          <button id="save-key">Save</button>
+          <button id="clear-key">Clear</button>
+          <span class="hint" id="key-state"></span>
+        </div>
+        <p class="hint">Stored in the macOS Keychain, never in plain text.
+           Without a key the app drives your local <code>claude</code> CLI.</p>
+      </div>
+      <div class="block" id="prefs-block">
+        <h3>Instruments by role</h3>
+        <p class="hint">Saved across sessions and used whenever a track is built.</p>
+        <div id="prefs"></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<dialog id="about">
+  <div class="about-body">
+    <h2>Eightbar</h2>
+    <p>Natural-language music production for Ableton Live. Generates MIDI,
+       builds variations and arranges whole tracks straight into your set.</p>
+    <p class="muted">Named for the phrase length every section, build and drop
+       is measured in.</p>
+    <div class="about-row">
+      <a href="https://fintonlabs.com" target="_blank" rel="noopener">Made by FintonLabs</a>
+      <span class="muted" id="version">v0.1.0</span>
+    </div>
+    <div class="about-row">
+      <span class="muted">Esc to close</span>
+      <button id="about-close">Close</button>
+    </div>
+  </div>
+</dialog>
+
+<script type="module" src="./app.ts"></script>
+</body>
+</html>

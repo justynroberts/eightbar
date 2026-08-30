@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Electron needs these three under the hardened runtime: V8 compiles code at
+    runtime, and Chromium loads frameworks this app did not sign.
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!--
+    Eightbar spawns the Python core as a child process during development, and
+    talks to Ableton over a loopback socket. Under the hardened runtime a child
+    process needs its environment passed through, and the network client
+    entitlement covers the socket.
+  -->
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+  <key>com.apple.security.network.client</key>
+  <true/>
+</dict>
+</plist>

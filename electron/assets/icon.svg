@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MIT License - Copyright (c) fintonlabs.com -->
+<!--
+  Eightbar.
+
+  Eight clip lanes on a timeline, entering one after another. That staircase is
+  what an arrangement looks like from above, and it is what the app builds:
+  parts stacking up across eight-bar phrases until the drop.
+
+  Colours are the musical-role palette used throughout the interface, so the
+  mark and the arrange view speak the same language. Flat fills, hard edges and
+  Live's dark chrome, so it sits beside Ableton without looking like a visitor.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="squircle">
+      <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect width="1024" height="1024" fill="#2a2a2a"/>
+
+    <!-- Phrase boundaries, ruled like a timeline. -->
+    <g stroke="#383838" stroke-width="3">
+      <line x1="316" y1="150" x2="316" y2="874"/>
+      <line x1="520" y1="150" x2="520" y2="874"/>
+      <line x1="724" y1="150" x2="724" y2="874"/>
+    </g>
+
+    <!-- Eight lanes, each entering later than the one above: the build. -->
+    <g>
+      <rect x="112" y="176" width="800" height="62" fill="#ff9b4e"/>
+      <rect x="188" y="262" width="724" height="62" fill="#ffb84d"/>
+      <rect x="264" y="348" width="648" height="62" fill="#e7d44b"/>
+      <rect x="340" y="434" width="572" height="62" fill="#8fd94f"/>
+      <rect x="416" y="520" width="496" height="62" fill="#4fd7b8"/>
+      <rect x="492" y="606" width="420" height="62" fill="#54c4ec"/>
+      <rect x="568" y="692" width="344" height="62" fill="#7ba3ff"/>
+      <rect x="644" y="778" width="268" height="62" fill="#b389ff"/>
+    </g>
+
+    <!-- The playhead, in Live's selection amber, sitting on the drop. -->
+    <rect x="636" y="140" width="12" height="744" fill="#ffad56"/>
+    <path d="M 610 140 L 674 140 L 642 196 Z" fill="#ffad56"/>
+  </g>
+</svg>
