@@ -39,11 +39,24 @@ function createWindow(): void {
   const { workArea } = screen.getPrimaryDisplay();
   const width = Math.min(Math.max(store.width, 360), 620);
 
+  // A remembered position can point at a display that is no longer attached.
+  // Reject anything that does not land inside a current one, or the window
+  // opens somewhere invisible.
+  const onScreen =
+    store.x !== undefined &&
+    store.y !== undefined &&
+    screen.getAllDisplays().some(({ workArea: area }) =>
+      store.x! >= area.x - 40 &&
+      store.x! < area.x + area.width - 80 &&
+      store.y! >= area.y - 40 &&
+      store.y! < area.y + area.height - 40,
+    );
+
   window = new BrowserWindow({
     width,
     height: workArea.height,
-    x: store.x ?? workArea.x + workArea.width - width,
-    y: store.y ?? workArea.y,
+    x: onScreen ? store.x : workArea.x + workArea.width - width,
+    y: onScreen ? store.y : workArea.y,
     minWidth: 340,
     maxWidth: 900,
     minHeight: 420,
@@ -75,7 +88,17 @@ function createWindow(): void {
 
   // Float above Live without stealing focus from it.
   window.setAlwaysOnTop(store.alwaysOnTop, 'floating');
-  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  // Deliberately NOT setVisibleOnAllWorkspaces: on macOS that flips the app's
+  // activation policy to accessory (LSUIElement), which removes the dock icon.
+  // The window then has no way back once it goes behind something or is
+  // closed, and the app looks like it has vanished while still running.
+  if (process.platform === 'darwin') {
+    app.setActivationPolicy('regular');
+    void app.dock?.show();
+  }
+
+  window.show();
 
   const remember = () => {
     if (!window) return;
@@ -95,8 +118,16 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   createWindow();
+  // Clicking the dock icon must bring the window back, whether it was closed,
+  // minimised or merely buried.
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (window && !window.isDestroyed()) {
+      if (window.isMinimized()) window.restore();
+      window.show();
+      window.focus();
+      return;
+    }
+    createWindow();
   });
 });
 
