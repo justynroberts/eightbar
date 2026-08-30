@@ -1292,18 +1292,35 @@ class Toolbox:
                     "object. Pass the 'sections' list from plan_arrangement."
                 )
             label = section.get("name") or f"section {position}"
-            for required in ("start_bar", "bars"):
-                if section.get(required) is None:
-                    raise ToolError(
-                        f"{label} has no {required}. Every section needs "
-                        "start_bar and bars -- use the list plan_arrangement "
-                        "returns rather than building it by hand."
-                    )
+
+            # Accept the shapes a caller reasonably reaches for: `bars`,
+            # `length_bars`, or a pair of boundaries. Only complain when the
+            # length genuinely cannot be worked out.
+            raw_start = section.get("start_bar", section.get("start"))
+            raw_length = section.get("bars", section.get("length_bars"))
+            raw_end = section.get("end_bar", section.get("end"))
+
+            if raw_start is None:
+                raise ToolError(
+                    f"{label} has no start_bar. Pass the sections list that "
+                    "plan_arrangement returns rather than rebuilding it."
+                )
             try:
-                start = float(section["start_bar"])
-                length = float(section["bars"])
+                start = float(raw_start)
+                if raw_length is not None:
+                    length = float(raw_length)
+                elif raw_end is not None:
+                    length = float(raw_end) - start
+                else:
+                    raise ToolError(
+                        f"{label} has no bars. A section needs either `bars` "
+                        "or an `end_bar`. The sections list from "
+                        "plan_arrangement already has both."
+                    )
             except (TypeError, ValueError) as exc:
-                raise ToolError(f"{label}: start_bar and bars must be numbers ({exc})")
+                raise ToolError(
+                    f"{label}: start_bar and bars must be numbers ({exc})"
+                )
             if length <= 0:
                 raise ToolError(f"{label}: bars must be greater than zero")
             clean_sections.append({

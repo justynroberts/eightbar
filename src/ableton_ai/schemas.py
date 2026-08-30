@@ -11,7 +11,10 @@ import inspect
 import typing
 from typing import Any, get_args, get_origin
 
-from . import arrangement, generators, theory
+from . import (
+    arrangement, basslines, generators, groove, harmony, leads, melody,
+    mixing, presets, theory, voicings,
+)
 from .tools import Toolbox
 
 # Prose for parameters whose meaning isn't obvious from the name alone.
@@ -74,6 +77,128 @@ PARAM_DOCS: dict[str, str] = {
     "fill_last_bar": "Replace the last bar's hats with a tom fill.",
     "clear_first": "Wipe existing arrangement clips on these tracks first.",
 }
+
+def _vocab(*sources: Any) -> list[str]:
+    """Flatten dict keys and iterables into a sorted list of allowed values."""
+    values: set[str] = set()
+    for source in sources:
+        values.update(str(v) for v in source)
+    return sorted(values)
+
+
+# Parameters with a closed vocabulary. Without these the model passes a
+# plausible-sounding word that does not exist -- "extended" for a variation,
+# say -- and the call fails at the far end where the error is least useful.
+# Sourced from the modules themselves so the schema cannot drift from the code.
+ENUMS: dict[str, list[str]] = {
+    "scale": _vocab(theory.SCALES, theory.ALIASES),
+    "variation": _vocab(harmony.RECIPES),
+    "voicing": _vocab(voicings.STYLES, voicings.ALIASES),
+    "extension": _vocab(voicings.EXTENSION_LADDER),
+    "pattern": _vocab(generators.DRUM_PATTERNS),
+    "groove": _vocab(groove.GROOVES, groove.ALIASES),
+    "groove_name": _vocab(groove.GROOVES, groove.ALIASES),
+    "genre": _vocab(presets.GENRE_CHARACTER),
+    "patch": _vocab(presets.RECIPES, presets.ALIASES),
+    "role": _vocab(arrangement.ROLES),
+    "template": _vocab(arrangement.TEMPLATES, arrangement.ALIASES),
+    "contour": ["arch", "fall", "random", "rise", "valley"],
+    "kind": ["audio", "midi"],
+    "mode": ["add", "replace"],
+    "kick_mode": ["avoid", "ignore", "lock", "shorten"],
+    "direction": ["down", "up"],
+    "rate": ["1/4", "1/8", "1/16", "1/32"],
+    "shape": ["arch", "fall", "rise", "step", "valley"],
+    "move": ["close_for_break", "drop_open", "open_into_drop", "pulse", "swell"],
+    "wave": ["noise", "random", "saw_down", "saw_up", "sine", "square", "triangle"],
+    "action": ["fire_clip", "play", "show_arrangement", "show_session", "stop",
+               "stop_clip"],
+    "instrument": _vocab(generators.DRUM_MAP),
+    "instruments": _vocab(generators.DRUM_MAP),
+}
+
+# Object-shaped parameters need their fields described, or the model invents a
+# shape. A bare {"type": "object"} tells it nothing.
+ITEM_SCHEMAS: dict[str, dict[str, Any]] = {
+    "sections": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "start_bar": {"type": "number"},
+            "bars": {"type": "number"},
+            "end_bar": {"type": "number"},
+            "energy": {"type": "number"},
+            "roles": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["start_bar", "bars", "roles"],
+    },
+    "tracks": {
+        "type": "object",
+        "properties": {
+            "track_index": {"type": "integer"},
+            "role": {"type": "string", "enum": list(arrangement.ROLES)},
+            "clip_index": {"type": "integer"},
+            "clip_indices": {"type": "array", "items": {"type": "integer"}},
+            "variation_policy": {
+                "type": "string",
+                "enum": ["cycle", "escalate", "random"],
+            },
+        },
+        "required": ["track_index", "role"],
+    },
+    "notes": {
+        "type": "object",
+        "properties": {
+            "pitch": {"type": "integer"},
+            "start": {"type": "number"},
+            "duration": {"type": "number"},
+            "velocity": {"type": "integer"},
+        },
+        "required": ["pitch", "start"],
+    },
+    "markers": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "start_bar": {"type": "number"},
+        },
+        "required": ["name", "start_bar"],
+    },
+}
+
+
+# The same parameter name means different things in different tools, so these
+# win over the table above.
+TOOL_ENUMS: dict[str, dict[str, list[str]]] = {
+    "create_varied_chords": {"rhythm": _vocab(generators.CHORD_COMPS)},
+    "create_chord_clip": {"rhythm": _vocab(generators.RHYTHM_PATTERNS)},
+    "create_styled_bass": {"style": _vocab(basslines.STYLES, basslines.ALIASES)},
+    "create_bass_clip": {
+        "style": ["fifth", "octave", "root", "walk"],
+        "rhythm": _vocab(generators.RHYTHM_PATTERNS),
+    },
+    "create_lead_clip": {"style": _vocab(leads.STYLES, leads.ALIASES)},
+    "create_melody_clip": {
+        "rhythm": _vocab(melody.RHYTHMS),
+        "variation": _vocab(harmony.RECIPES),
+    },
+    "create_arpeggio_clip": {"style": list(generators.ARP_STYLES)},
+    "create_hook_clip": {"rhythm": _vocab(generators.RHYTHM_PATTERNS)},
+    "add_compression": {"style": _vocab(mixing.COMPRESSION)},
+    "create_drum_fill": {"style": ["snare", "stutter", "toms"]},
+    "design_sound": {"patch": _vocab(presets.RECIPES, presets.ALIASES)},
+    "pick_sound": {
+        "character": _vocab(
+            {c for table in presets.PRESET_PICKS.values() for c in table}
+        ),
+    },
+    "build_track": {"genre": _vocab({"trance", "tech_house", "house",
+                                     "deep_house", "techno", "melodic_techno",
+                                     "big_room", "progressive", "dnb",
+                                     "edm", "festival", "prog", "trap"})},
+    "set_view": {"view": ["arrangement", "session"]},
+}
+
 
 _JSON_TYPES: dict[Any, str] = {
     int: "integer",
@@ -148,6 +273,19 @@ def tool_schemas() -> list[dict[str, Any]]:
             description = PARAM_DOCS.get(param_name)
             if description:
                 prop = {**prop, "description": description}
+
+            # An object-shaped list needs its fields spelled out.
+            item_schema = ITEM_SCHEMAS.get(param_name)
+            if item_schema and prop.get("type") == "array":
+                prop = {**prop, "items": item_schema}
+
+            # A closed vocabulary belongs in the schema, not only in the prose.
+            allowed = TOOL_ENUMS.get(name, {}).get(param_name) or ENUMS.get(param_name)
+            if allowed:
+                if prop.get("type") == "array":
+                    prop = {**prop, "items": {"type": "string", "enum": allowed}}
+                elif prop.get("type") in (None, "string"):
+                    prop = {**prop, "type": "string", "enum": allowed}
             if param.default is inspect.Parameter.empty:
                 required.append(param_name)
             elif param.default is not None:

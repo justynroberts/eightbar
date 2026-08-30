@@ -564,3 +564,78 @@ def test_remember_and_recall_through_the_tools(box, tmp_path):
 
     box.call("forget", {"about": "riser"})
     assert box.call("recall", {})["rules"] == []
+
+
+# ------------------------------------------- schema constrains the model
+
+def test_closed_vocabularies_are_enumerated_in_the_schema():
+    """Regression: the model passed variation="extended", which sounds
+    plausible and does not exist. Prose in a description does not stop it;
+    an enum does."""
+    from ableton_ai import harmony
+
+    schemas = {s["name"]: s for s in tool_schemas()}
+    variation = schemas["create_varied_chords"]["input_schema"]["properties"]["variation"]
+    assert set(variation["enum"]) == set(harmony.RECIPES)
+    assert "extended" not in variation["enum"]
+
+    # Every enum must match what the code actually accepts.
+    scale = schemas["create_varied_chords"]["input_schema"]["properties"]["scale"]
+    assert "minor" in scale["enum"] and "dorian" in scale["enum"]
+
+
+def test_object_shaped_parameters_describe_their_fields():
+    """Regression: sections was a bare {"type": "object"}, so the model
+    invented a shape and left out `bars`."""
+    schemas = {s["name"]: s for s in tool_schemas()}
+    props = schemas["arrange_to_timeline"]["input_schema"]["properties"]
+
+    section = props["sections"]["items"]
+    assert set(section["required"]) == {"start_bar", "bars", "roles"}
+
+    track = props["tracks"]["items"]
+    assert set(track["required"]) == {"track_index", "role"}
+    assert "kick" in track["properties"]["role"]["enum"]
+
+
+def test_every_enum_value_is_actually_accepted(box):
+    """An enum that offers a value the tool rejects is worse than none."""
+    from ableton_ai import basslines, harmony, leads, theory, voicings
+
+    for name, module_vocab in (
+        ("variation", harmony.RECIPES),
+        ("voicing", {**voicings.STYLES, **voicings.ALIASES}),
+    ):
+        schemas = {s["name"]: s for s in tool_schemas()}
+        allowed = schemas["create_varied_chords"]["input_schema"]["properties"][name]["enum"]
+        for value in allowed:
+            assert value in module_vocab, f"{name}={value} is offered but unknown"
+
+    for style in leads.STYLES:
+        leads.resolve(style)
+    for style in basslines.STYLES:
+        basslines.resolve(style)
+
+
+def test_a_section_can_give_end_bar_instead_of_bars(box):
+    """Regression: a hand-built section with boundaries but no `bars` failed."""
+    box.call("create_track", {"name": "Kick", "role": "kick"})
+    box.call("create_drum_clip", {"track_index": 0, "bars": 4})
+
+    result = box.call("arrange_to_timeline", {
+        "sections": [{"name": "intro", "start_bar": 0, "end_bar": 16,
+                      "roles": ["kick"]}],
+        "tracks": [{"track_index": 0, "clip_index": 0, "role": "kick"}],
+    })
+    assert result["placements"] == 1
+    assert result["end_bars"] == 16
+
+
+def test_a_section_with_no_length_at_all_says_so(box):
+    box.call("create_track", {"name": "Kick", "role": "kick"})
+    box.call("create_drum_clip", {"track_index": 0, "bars": 4})
+    with pytest.raises(ToolError, match="needs either `bars` or an `end_bar`"):
+        box.call("arrange_to_timeline", {
+            "sections": [{"name": "intro", "start_bar": 0, "roles": ["kick"]}],
+            "tracks": [{"track_index": 0, "clip_index": 0, "role": "kick"}],
+        })
