@@ -134,10 +134,84 @@ class Toolbox:
     # Dispatch
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _allowed_values(tool: str, param: str) -> list[str]:
+        """The closed vocabulary for one parameter, if it has one.
+
+        Imported lazily: schemas imports this module, so a module-level import
+        would be circular.
+        """
+        from . import schemas
+
+        per_tool = schemas.TOOL_ENUMS.get(tool, {})
+        return list(per_tool.get(param) or schemas.ENUMS.get(param) or [])
+
+    def _repair_vocabulary(self, name: str, arguments: dict[str, Any]) -> list[str]:
+        """Fix near-misses in closed vocabularies, and explain the rest.
+
+        The model reaches for a word that is musically sensible but not in the
+        table -- "stab", "minor9", "offbeat_hats" -- and the call fails at the
+        far end with a list of twenty-five names, which is the least useful
+        possible reply. A very close match is corrected and reported; anything
+        else gets the three nearest suggestions rather than the whole table.
+
+        Only near-identical spellings are corrected. Substituting a word that
+        merely sounds similar would silently make different music, which is
+        worse than failing.
+        """
+        import difflib
+
+        corrections: list[str] = []
+        for param, value in list(arguments.items()):
+            allowed = self._allowed_values(name, param)
+            if not allowed:
+                continue
+
+            values = value if isinstance(value, list) else [value]
+            if not all(isinstance(v, str) for v in values):
+                continue
+
+            repaired, unknown = [], []
+            for one in values:
+                if one in allowed:
+                    repaired.append(one)
+                    continue
+                exact = difflib.get_close_matches(one, allowed, n=1, cutoff=0.86)
+                if exact:
+                    corrections.append(f"{param}={one!r} -> {exact[0]!r}")
+                    repaired.append(exact[0])
+                else:
+                    unknown.append(one)
+
+            if unknown:
+                near = difflib.get_close_matches(unknown[0], allowed, n=3, cutoff=0.3)
+                suggestion = (
+                    f"did you mean {', '.join(repr(n) for n in near)}?"
+                    if near else f"allowed: {', '.join(allowed[:12])}"
+                )
+                raise ToolError(
+                    f"{name}: {param}={unknown[0]!r} is not a known value. "
+                    f"{suggestion}"
+                )
+
+            arguments[param] = repaired if isinstance(value, list) else repaired[0]
+
+        return corrections
+
     def call(self, name: str, arguments: dict[str, Any]) -> Any:
         handler: Callable[..., Any] | None = getattr(self, f"tool_{name}", None)
         if handler is None:
-            raise ToolError(f"no such tool: {name}")
+            import difflib
+
+            near = difflib.get_close_matches(
+                name, [n[5:] for n in dir(self) if n.startswith("tool_")],
+                n=3, cutoff=0.5,
+            )
+            hint = f" Did you mean {', '.join(near)}?" if near else ""
+            raise ToolError(f"no such tool: {name}.{hint}")
+
+        arguments = dict(arguments)
+        corrections = self._repair_vocabulary(name, arguments)
 
         # Check the arguments against the signature *before* calling, so a
         # TypeError raised inside the tool body is not misreported as a bad
@@ -150,7 +224,10 @@ class Toolbox:
             raise ToolError(f"{name}: bad arguments -- {exc}") from exc
 
         try:
-            return handler(**arguments)
+            result = handler(**arguments)
+            if corrections and isinstance(result, dict):
+                result["corrected"] = corrections
+            return result
         except TypeError as exc:
             raise ToolError(f"{name}: {type(exc).__name__} -- {exc}") from exc
         except (AbletonNotRunning, AbletonError) as exc:

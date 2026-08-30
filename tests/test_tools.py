@@ -345,7 +345,7 @@ def test_set_sound_preference_rejects_an_unknown_role(box, tmp_path):
     from ableton_ai.sounds import SoundPreferences
 
     box.sounds = SoundPreferences(tmp_path / "s.json")
-    with pytest.raises(ToolError, match="unknown role"):
+    with pytest.raises(ToolError, match="is not a known value"):
         box.call("set_sound_preference", {"role": "kazoo", "path": "x"})
 
 
@@ -948,3 +948,43 @@ def test_learned_asks_for_a_corpus_before_using_one(box):
         box.call("create_chord_clip", {
             "track_index": 0, "clip_index": 0, "degrees": "learned",
         })
+
+
+def test_near_miss_values_are_corrected_and_reported(box):
+    """A one-character slip should not cost a round trip.
+
+    The correction is reported rather than applied silently: substituting a word
+    that merely sounds similar would quietly make different music.
+    """
+    box.call("create_track", {"name": "Drums", "role": "drums"})
+    result = box.call("create_drum_clip", {
+        "track_index": 0, "clip_index": 0, "pattern": "tech_hous", "bars": 1,
+    })
+    assert result.get("corrected") == ["pattern='tech_hous' -> 'tech_house'"]
+
+
+def test_unknown_values_suggest_instead_of_listing_everything(box):
+    """Twenty-five names is the least useful possible reply."""
+    box.call("create_track", {"name": "Drums", "role": "drums"})
+    with pytest.raises(ToolError) as caught:
+        box.call("create_drum_clip", {
+            "track_index": 0, "clip_index": 0, "pattern": "wubwubwub",
+        })
+    message = str(caught.value)
+    assert "wubwubwub" in message
+    assert len(message) < 200, f"still dumping the whole table: {message}"
+
+
+def test_part_level_drum_patterns_exist(box):
+    """"Offbeat hats" is a normal request; the table only held whole kits."""
+    box.call("create_track", {"name": "Hats", "role": "drums"})
+    for pattern in ("offbeat_hats", "offbeat", "hats", "16ths", "garage"):
+        result = box.call("create_drum_clip", {
+            "track_index": 0, "clip_index": 0, "pattern": pattern, "bars": 1,
+        })
+        assert result.get("summary"), pattern
+
+
+def test_an_unknown_tool_suggests_a_real_one(box):
+    with pytest.raises(ToolError, match="Did you mean"):
+        box.call("create_drums_clip", {})

@@ -107,6 +107,59 @@ DRUM_PATTERNS: dict[str, dict[str, str]] = {
     },
 }
 
+# Single-element patterns. "offbeat hats" is a thing people ask for and the
+# table only held whole kits, so the request had nowhere to land.
+DRUM_PATTERNS.update({
+    "offbeat_hats":   {"open_hat":   "..x...x...x...x."},
+    "closed_hats":    {"closed_hat": "x.x.x.x.x.x.x.x."},
+    "sixteenth_hats": {"closed_hat": "xxxxxxxxxxxxxxxx"},
+    "offbeat_kick":   {"kick":       "..x...x...x...x."},
+    "kick_only":      {"kick":       "x...x...x...x..."},
+    "clap_backbeat":  {"clap":       "....x.......x..."},
+    "shaker":         {"shaker":     "x.x.x.x.x.x.x.x."},
+    "ride":           {"ride":       "..x...x...x...x."},
+    "percussion":     {"perc":       "..x..x..x..x.x..",
+                       "rim":        "....x.......x..."},
+    "half_time":      {"kick":       "x.......x.......",
+                       "clap":       "........x.......",
+                       "closed_hat": "..x...x...x...x."},
+    "broken":         {"kick":       "x.....x...x.....",
+                       "clap":       "....x.......x...",
+                       "closed_hat": "x.x.x.x.x.x.x.x."},
+})
+
+# Words that mean one of the above.
+PATTERN_ALIASES: dict[str, str] = {
+    "offbeat": "offbeat_hats", "off_beat_hats": "offbeat_hats",
+    "open_hats": "offbeat_hats", "hats": "closed_hats", "hat": "closed_hats",
+    "sixteenths": "sixteenth_hats", "16ths": "sixteenth_hats",
+    "rolling_hats": "sixteenth_hats", "driving_hats": "sixteenth_hats",
+    "four_to_the_floor": "four_on_floor", "4x4": "four_on_floor",
+    "fourfour": "four_on_floor", "straight": "four_on_floor",
+    "clap": "clap_backbeat", "claps": "clap_backbeat",
+    "snare": "clap_backbeat", "backbeat": "clap_backbeat",
+    "kick": "kick_only", "kicks": "kick_only",
+    "perc": "percussion", "percs": "percussion", "shakers": "shaker",
+    "halftime": "half_time", "garage": "broken", "ukg": "broken",
+    "twostep": "broken", "two_step": "broken",
+    "drum_and_bass": "dnb", "drum_n_bass": "dnb", "jungle": "dnb",
+    "hiphop": "hip_hop", "boom_bap": "hip_hop", "trapstep": "trap",
+    "deephouse": "deep_house", "techhouse": "tech_house",
+    "minimal_techno": "minimal", "breaks": "breakbeat",
+}
+
+
+def normalise_pattern(name: str) -> str:
+    """Resolve a pattern synonym to a real key."""
+    key = str(name).strip().lower().replace(" ", "_").replace("-", "_")
+    return PATTERN_ALIASES.get(key, key)
+
+
+def pattern_vocabulary() -> list[str]:
+    """Every accepted pattern word, synonyms included, for the tool schema."""
+    return sorted(set(DRUM_PATTERNS) | set(PATTERN_ALIASES))
+
+
 # Bass/lead rhythms, also one bar of sixteenths.
 RHYTHM_PATTERNS: dict[str, str] = {
     "four_on_floor": "x...x...x...x...",
@@ -240,6 +293,7 @@ def generate_drums(
     usually comes from.
     """
     key = pattern.strip().lower().replace(" ", "_").replace("-", "_")
+    key = normalise_pattern(key)
     if key not in DRUM_PATTERNS:
         raise ValueError(
             f"unknown drum pattern {pattern!r}; "

@@ -228,3 +228,28 @@ write-only -- it was, for a while. `corpus_profile` reports what was learned.
 -> `dist/core/`, ~88MB) and ships it in `Resources/core`. The Electron app
 prefers that binary and falls back to a checkout's `.venv` in development, so a
 packaged build chats on a machine with no Python. `dist/` is gitignored.
+
+## Closed vocabularies must accept the words people use
+
+Every enum parameter has bitten at least once: `variation="extended"`,
+`extension="minor9"`, `role="melody"`, `mutations=["stab"]`,
+`pattern="offbeat_hats"`. The request was musically sensible each time; the
+table just did not hold the word.
+
+Three defences, in `Toolbox._repair_vocabulary` and the module alias tables:
+
+- **Publish the vocabulary in the schema.** `ENUMS` and `TOOL_ENUMS` in
+  `schemas.py` are sourced from the modules, so they cannot drift. The Anthropic
+  backend enforces them; `claude -p` cannot, which is why the other two matter.
+- **Correct near-misses and say so.** A match at difflib cutoff 0.86 is applied
+  and reported in the result as `corrected`. Anything looser is *not* guessed --
+  substituting a word that merely sounds similar makes different music silently,
+  which is worse than failing.
+- **Suggest, do not enumerate.** An unknown value returns the three nearest
+  names. Twenty-five is the least useful possible reply.
+
+When adding a vocabulary, add its `ALIASES` table alongside it and expose a
+`*_vocabulary()` that includes the synonyms, the way `variations`,
+`generators`, `voicings` and `arrangement` do. If a request keeps failing
+because the concept is missing rather than the word -- `offbeat_hats` described
+an instrument, not a kit -- add the concept.

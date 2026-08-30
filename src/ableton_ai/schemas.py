@@ -118,7 +118,7 @@ ENUMS: dict[str, list[str]] = {
     "mutations": variations.mutation_vocabulary(),
     "voicing": _vocab(voicings.STYLES, voicings.ALIASES),
     "extension": voicings.extension_vocabulary(),
-    "pattern": _vocab(generators.DRUM_PATTERNS),
+    "pattern": generators.pattern_vocabulary(),
     "groove": _vocab(groove.GROOVES, groove.ALIASES, ["learned"]),
     "groove_name": _vocab(groove.GROOVES, groove.ALIASES, ["learned"]),
     "genre": _vocab(presets.GENRE_CHARACTER),
