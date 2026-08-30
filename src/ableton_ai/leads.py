@@ -131,6 +131,7 @@ def generate(
     step_count = max(1, int(round(total_beats / spec.rate)))
     notes: list[Note] = []
     previous: int | None = None
+    highest = 0
 
     for step in range(step_count):
         at = step * spec.rate
@@ -145,35 +146,54 @@ def generate(
         )
         chord = chords[chord_index]
 
-        # Every chord tone available across the style's octave span.
-        pool = sorted(
-            p + 12 * o
-            for o in range(spec.octave_span + 1)
-            for p in chord.pitches
-        )
-        # Lift into lead register in whole octaves. Shifting by an arbitrary
-        # number of semitones would transpose the chord off the key entirely.
+        # The line runs through the *scale*, not only the chord. Three chord
+        # tones inside an octave is too sparse a ladder to climb -- the contour
+        # ends up stepping between four notes and the arc disappears. Trance
+        # leads run the scale and land on chord tones where it matters, which
+        # is what this does: the pool is scale degrees, and strong beats snap
+        # to the nearest note of the sounding chord.
         target_low = (octave + 2) * 12
-        octaves_up = max(0, -(-(target_low - min(pool)) // 12))
-        pool = [p + octaves_up * 12 for p in pool]
-        # Drop anything above the ceiling, but never empty the pool.
-        clamped = [p for p in pool if p <= MAX_LEAD_PITCH]
-        pool = clamped or pool[:1]
+        # An octave and a fourth is the range a top line can own without
+        # crowding whatever sits above or below it.
+        ceiling = min(MAX_LEAD_PITCH, target_low + 17)
+        pool = [
+            p for p in theory.scale_pitches(root, scale, octave=octave, octaves=3)
+            if target_low <= p <= ceiling
+        ]
+        if not pool:
+            pool = [target_low]
+
+        chord_classes = {p % 12 for p in chord.pitches}
 
         if previous is not None and rng.random() < spec.repeat_bias:
             pitch = previous
         else:
             target = _contour_position(spec.contour, progress)
             index = int(target * (len(pool) - 1))
-            # Wobble by one chord tone so it is a line, not a ramp.
-            index = max(0, min(len(pool) - 1, index + rng.randint(-1, 1)))
+            # Wobble by one chord tone so it is a line rather than a ramp --
+            # but only when the pool is big enough to absorb it. On a five-note
+            # pool a step of one is a fifth of the whole range, and the arc the
+            # contour is drawing disappears into the noise.
+            if len(pool) >= 8:
+                index = max(0, min(len(pool) - 1, index + rng.randint(-1, 1)))
             pitch = pool[index]
 
-        # A climbing line lands on its highest note at the very end -- that
-        # arrival is the whole point of the phrase.
-        if spec.contour == "climb" and step == step_count - 1:
-            pitch = pool[-1]
+            # Strong beats belong to the harmony; the notes between them are
+            # free to be passing tones. Without this the line is merely in-key
+            # and never sounds like it belongs to the chord underneath.
+            if step % 4 == 0 and chord_classes:
+                nearby = [p for p in pool if p % 12 in chord_classes]
+                if nearby:
+                    pitch = min(nearby, key=lambda p: abs(p - pitch))
 
+        # A climbing line lands on its highest note at the very end -- that
+        # arrival is the whole point of the phrase, so it has to clear
+        # everything before it, not merely top its own chord's pool.
+        if spec.contour == "climb" and step == step_count - 1:
+            pitch = max(pool[-1], highest + 1 if highest else pool[-1])
+            pitch = min(pitch, ceiling)
+
+        highest = max(highest, pitch)
         notes.append({
             "pitch": max(0, min(127, pitch)),
             "start": at,

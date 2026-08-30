@@ -64,6 +64,9 @@ _ROLE_HINTS: tuple[tuple[str, str], ...] = (
 def _role_from_name(name: str) -> str:
     """Guess a track's musical role from what the producer called it."""
     lowered = (name or "").lower()
+    direct = arrangement.normalise_role(lowered)
+    if direct:
+        return direct
     for needle, role in _ROLE_HINTS:
         if needle in lowered:
             return role
@@ -516,15 +519,20 @@ class Toolbox:
             step("chords", lambda: self.tool_create_varied_chords(
                 made["Chords"], bars=8, variation="rich",
                 rhythm=recipe["chord_rhythm"], **common))
+        # Three melodic parts in the same octave is mush, however good each one
+        # is on its own. The hook owns the top, the lead sits an octave below
+        # it, and the melody lower still -- and the arrangement keeps them out
+        # of the same sections besides.
         if "Hook" in made:
             step("hook", lambda: self.tool_create_hook_clip(
-                made["Hook"], bars=8, **common))
+                made["Hook"], bars=8, octave=5, **common))
         if "Lead" in made:
             step("lead", lambda: self.tool_create_lead_clip(
-                made["Lead"], bars=8, style=recipe["lead_style"], **common))
+                made["Lead"], bars=8, style=recipe["lead_style"], octave=4,
+                **common))
         if "Melody" in made:
             step("melody", lambda: self.tool_create_melody_clip(
-                made["Melody"], bars=8, octave=5, **common))
+                made["Melody"], bars=8, octave=4, variation="rich", **common))
         if "Riser" in made:
             step("riser", lambda: self.tool_create_riser_clip(
                 made["Riser"], bars=8, key=key, scale=mode))
@@ -1828,10 +1836,14 @@ class Toolbox:
         "Plugins/VST3/Xfer Records/Serum 2" -- get one from search_devices.
         The preference persists across sessions.
         """
-        if role.lower() not in arrangement.ROLES:
+        canonical = arrangement.normalise_role(role)
+        if canonical is None:
             raise ToolError(
-                f"unknown role {role!r}; one of: {', '.join(arrangement.ROLES)}"
+                f"unknown role {role!r}; one of: "
+                f"{', '.join(arrangement.ROLES)} "
+                f"(synonyms accepted: {', '.join(sorted(arrangement.ROLE_ALIASES))})"
             )
+        role = canonical
         self.sounds.set_role(role, path)
         if favourite:
             self.sounds.add_favourite(path)

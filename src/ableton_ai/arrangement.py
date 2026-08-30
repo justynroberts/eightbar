@@ -23,6 +23,47 @@ ROLES = (
 # Roles that exist to be filled in later by hand rather than generated.
 PLACEHOLDER_ROLES = ("vocal", "fx")
 
+# The words producers actually use, mapped onto the canonical roles. A closed
+# vocabulary is only useful if the obvious synonym for a thing resolves to it:
+# "melody" is the natural word for a lead, and refusing it is a worse answer
+# than accepting it.
+# At most one of these should sound in a section. Three top lines in the same
+# register cancel each other out, however good each is alone.
+TOP_LINE_ROLES = ("hook", "lead", "arp")
+
+ROLE_ALIASES: dict[str, str] = {
+    "melody": "lead", "topline": "lead", "top_line": "lead", "top": "lead",
+    "motif": "lead", "riff": "lead", "solo": "lead",
+    "keys": "chords", "piano": "chords", "stab": "chords", "stabs": "chords",
+    "harmony": "chords", "chord": "chords",
+    "pluck": "arp", "plucks": "arp", "arpeggio": "arp", "sequence": "arp",
+    "percussion": "perc", "shaker": "perc", "conga": "perc", "tops": "perc",
+    "hat": "drums", "hats": "drums", "snare": "drums", "clap": "drums",
+    "kit": "drums", "beat": "drums", "loop": "drums",
+    "kicks": "kick", "bd": "kick",
+    "subbass": "sub", "sub_bass": "sub", "808": "sub",
+    "vocals": "vocal", "vox": "vocal", "voice": "vocal",
+    "effects": "fx", "sfx": "fx", "atmos": "fx", "ambience": "fx",
+    "rise": "riser", "sweep": "riser", "uplifter": "riser", "build": "riser",
+    "impacts": "impact", "crash": "impact", "hit": "impact", "downlifter": "impact",
+    "pads": "pad", "strings": "pad", "atmosphere": "pad",
+    "hooks": "hook", "vocal_chop": "hook",
+    "leads": "lead",
+}
+
+
+def normalise_role(role: str) -> str | None:
+    """Resolve a role name to its canonical form, or None if unknown."""
+    key = (role or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if key in ROLES:
+        return key
+    return ROLE_ALIASES.get(key)
+
+
+def role_vocabulary() -> list[str]:
+    """Everything a caller may legitimately say for a role."""
+    return sorted(set(ROLES) | set(ROLE_ALIASES))
+
 # When a template asks for a role no track provides, fall back to the nearest
 # musical neighbour. Without this, a set with a "Bass" track but no "Sub" goes
 # silent through every section that only listed "sub".
@@ -94,18 +135,18 @@ TEMPLATES: dict[str, list[tuple[str, float, float, tuple[str, ...]]]] = {
         ("verse",      2, 0.60, ("kick", "drums", "bass", "chords", "vocal")),
         ("build",      1, 0.75, ("drums", "bass", "chords", "riser", "fx")),
         ("drop",       3, 1.00, ("kick", "drums", "bass", "chords", "hook", "impact")),
-        ("breakdown",  2, 0.35, ("pad", "chords", "vocal")),
+        ("breakdown",  2, 0.35, ("pad", "chords", "vocal", "lead")),
         ("build",      1, 0.80, ("drums", "chords", "riser", "fx")),
-        ("drop",       3, 1.00, ("kick", "drums", "bass", "chords", "hook", "impact")),
+        ("drop",       3, 1.00, ("kick", "drums", "bass", "chords", "hook", "lead", "impact")),
         ("outro",      2, 0.30, ("kick", "drums")),
     ],
     "big_room": [
         ("intro",      2, 0.20, ("kick", "drums", "fx")),
         ("breakdown",  2, 0.35, ("pad", "chords", "vocal")),
         ("build",      2, 0.85, ("drums", "chords", "riser", "fx")),
-        ("drop",       3, 1.00, ("kick", "sub", "bass", "drums", "lead", "hook", "impact")),
-        ("groove",     2, 0.60, ("kick", "drums", "bass", "chords")),
-        ("breakdown",  2, 0.35, ("pad", "vocal")),
+        ("drop",       3, 1.00, ("kick", "sub", "bass", "drums", "hook", "impact")),
+        ("groove",     2, 0.60, ("kick", "drums", "bass", "chords", "arp")),
+        ("breakdown",  2, 0.35, ("pad", "vocal", "lead")),
         ("build",      2, 0.90, ("drums", "chords", "riser", "fx")),
         ("drop",       3, 1.00, ("kick", "sub", "bass", "drums", "lead", "hook", "impact")),
         ("outro",      2, 0.25, ("kick", "drums")),
@@ -154,7 +195,7 @@ TEMPLATES: dict[str, list[tuple[str, float, float, tuple[str, ...]]]] = {
         ("groove",     2, 0.45, ("kick", "drums", "bass")),
         ("breakdown",  3, 0.30, ("pad", "chords", "vocal")),
         ("build",      2, 0.80, ("drums", "chords", "arp", "riser", "fx")),
-        ("drop",       4, 1.00, ("kick", "drums", "bass", "chords", "lead", "hook", "impact")),
+        ("drop",       4, 1.00, ("kick", "drums", "bass", "chords", "lead", "impact")),
         ("groove",     2, 0.70, ("kick", "drums", "bass", "chords", "arp")),
         ("build",      1, 0.85, ("drums", "riser", "fx")),
         ("drop",       3, 1.00, ("kick", "drums", "bass", "chords", "lead", "hook", "impact")),

@@ -100,7 +100,7 @@ ENUMS: dict[str, list[str]] = {
     "groove_name": _vocab(groove.GROOVES, groove.ALIASES),
     "genre": _vocab(presets.GENRE_CHARACTER),
     "patch": _vocab(presets.RECIPES, presets.ALIASES),
-    "role": _vocab(arrangement.ROLES),
+    "role": arrangement.role_vocabulary(),
     "template": _vocab(arrangement.TEMPLATES, arrangement.ALIASES),
     "contour": ["arch", "fall", "random", "rise", "valley"],
     "kind": ["audio", "midi"],

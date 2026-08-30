@@ -107,7 +107,8 @@ class SoundPreferences:
 
     def for_role(self, role: str) -> str | None:
         """The device path for a role: user preference first, then a default."""
-        role = (role or "").lower()
+        from .arrangement import normalise_role
+        role = normalise_role(role) or (role or "").lower()
         roles = self.load()["roles"]
         return roles.get(role) or DEFAULT_ROLES.get(role)
 

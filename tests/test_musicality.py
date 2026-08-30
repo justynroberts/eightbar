@@ -152,10 +152,55 @@ def test_a_soaring_lead_is_continuous_sixteenths():
 
 
 def test_lead_notes_agree_with_the_harmony():
+    """Strong beats take chord tones; the notes between them may pass.
+
+    This previously asserted that *every* note was a chord tone, which is a
+    worse line -- three tones inside an octave is too sparse a ladder for the
+    contour to climb, and the result barely moved. The correct property is
+    that the line stays in key and lands on the harmony where it matters.
+    """
     chords = theory.build_progression("C", "minor", [1])
-    notes = leads.generate(chords, "C", "minor", "arp_climb", bars_per_chord=1, seed=1)
-    allowed = {p % 12 for p in chords[0].pitches}
-    assert {int(n["pitch"]) % 12 for n in notes} <= allowed
+    notes = leads.generate(chords, "C", "minor", "soaring", bars_per_chord=2, seed=1)
+
+    in_key = {p % 12 for p in theory.scale_pitches("C", "minor", octaves=1)}
+    assert {int(n["pitch"]) % 12 for n in notes} <= in_key
+
+    chord_tones = {p % 12 for p in chords[0].pitches}
+    downbeats = [n for n in notes if float(n["start"]) % 1.0 == 0]
+    assert downbeats
+    landed = sum(1 for n in downbeats if int(n["pitch"]) % 12 in chord_tones)
+    assert landed / len(downbeats) > 0.8, "the line ignores the chord underneath"
+
+
+def test_a_lead_stays_inside_one_register():
+    """Regression: a lead spanning two and a half octaves collides with every
+    other top line, whatever register it is nominally placed in."""
+    chords = theory.build_progression("C", "minor", [1, 6, 4, 5])
+    for style in ("soaring", "pluck", "rolling"):
+        notes = leads.generate(chords, "C", "minor", style, bars_per_chord=2,
+                               octave=4, seed=1)
+        span = max(n["pitch"] for n in notes) - min(n["pitch"] for n in notes)
+        assert span <= 19, f"{style} spans {span} semitones"
+
+
+def test_top_lines_do_not_all_share_one_octave():
+    """Regression: hook, lead and melody were generated in the same register
+    and played simultaneously, which cancels all three out."""
+    from ableton_ai import generators, melody as melody_mod
+
+    chords = theory.build_progression("C", "minor", [6, 4, 5, 1])
+    hook = generators.generate_hook(chords, bars_per_chord=2, octave=5,
+                                    root="C", scale="minor", seed=1)
+    lead = leads.generate(chords, "C", "minor", "soaring", bars_per_chord=2,
+                          octave=4, seed=1)
+    line = melody_mod.write("C", "minor", chords, bars=8, octave=4, seed=1)
+
+    def centre(notes):
+        return sum(n["pitch"] for n in notes) / len(notes)
+
+    # The hook owns the top; the others sit meaningfully below it.
+    assert centre(hook) > centre(lead) + 5
+    assert centre(hook) > centre(line) + 5
 
 
 # --------------------------------------------------------------- corpus

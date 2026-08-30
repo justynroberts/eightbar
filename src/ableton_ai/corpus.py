@@ -402,9 +402,8 @@ def classify_part(notes: list[MidiNote]) -> str:
         return "chords"
     if mean < 52:
         return "bass"
-    if mean > 76:
-        return "lead"
-    return "melody"
+    # "melody" is not a canonical role -- a melodic part is a lead.
+    return "lead"
 
 
 @dataclass

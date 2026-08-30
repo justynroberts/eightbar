@@ -388,7 +388,8 @@ GENRE_CHARACTER: dict[str, dict[str, str]] = {
 def picks_for(role: str, character: str | None = None,
               genre: str | None = None) -> tuple[str, ...]:
     """The ordered preset name fragments to try for a role."""
-    role = (role or "").lower()
+    from .arrangement import normalise_role
+    role = normalise_role(role) or (role or "").lower()
     table = PRESET_PICKS.get(role)
     if not table:
         return ()

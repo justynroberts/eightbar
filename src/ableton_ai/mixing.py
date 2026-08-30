@@ -142,7 +142,8 @@ MASTER_CHAIN = (
 
 
 def balance_for(role: str) -> RoleMix:
-    return BALANCE.get((role or "").lower(), BALANCE["fx"])
+    from .arrangement import normalise_role
+    return BALANCE.get(normalise_role(role) or (role or "").lower(), BALANCE["fx"])
 
 
 def headroom_advice(track_count: int) -> str:
