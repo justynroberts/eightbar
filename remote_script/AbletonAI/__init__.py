@@ -26,6 +26,14 @@ from _Framework.ControlSurface import ControlSurface
 
 import Live
 
+# Commands that only read. Everything else counts as a change to the set, which
+# is how the app knows there is unsaved work worth protecting.
+READ_ONLY_COMMANDS = frozenset([
+    "ping", "get_song", "get_track", "get_clip", "get_devices", "get_mixer",
+    "get_meters", "get_arrangement", "get_locators", "get_input_routings",
+    "browse", "search_browser", "probe_automation", "mark_saved",
+])
+
 DEFAULT_PORT = 9878
 HOST = "127.0.0.1"
 
@@ -146,11 +154,26 @@ class AbletonAI(ControlSurface):
                 "message": "unknown command: " + command,
             }
 
+        # Live exposes no "document modified" flag, so the next best thing is to
+        # count what we changed. Every restart today cost unsaved work that
+        # nothing could see was at risk.
+        if command not in READ_ONLY_COMMANDS:
+            self._mutations = getattr(self, "_mutations", 0) + 1
+            self._last_mutation = command
+
         result_queue = queue.Queue()
 
         def run_on_main_thread():
+            # Anything a handler chose to survive gets collected here rather
+            # than vanishing. A swallowed exception is how clear_arrangement
+            # reported success while deleting nothing at all, for months.
+            self._warnings = []
             try:
-                result_queue.put({"status": "success", "result": handler(params)})
+                result = handler(params)
+                if self._warnings and isinstance(result, dict):
+                    result["warnings"] = self._warnings
+                    result["warning_count"] = len(self._warnings)
+                result_queue.put({"status": "success", "result": result})
             except Exception as e:
                 self.log_message("AbletonAI " + command + " failed: " + str(e))
                 self.log_message(traceback.format_exc())
@@ -189,6 +212,7 @@ class AbletonAI(ControlSurface):
             "create_audio_track": self._create_audio_track,
             "set_locators": self._set_locators,
             "get_locators": self._get_locators,
+            "mark_saved": self._mark_saved,
             "delete_track": self._delete_track,
             "set_track_name": self._set_track_name,
             "set_track_color": self._set_track_color,
@@ -343,9 +367,31 @@ class AbletonAI(ControlSurface):
     # Read commands
     # ------------------------------------------------------------------
 
+    def _mark_saved(self, params):
+        """Zero the change counter. The user tells us; Live will not."""
+        was = getattr(self, "_mutations", 0)
+        self._mutations = 0
+        return {"cleared": was}
+
+    def _warn(self, where, exc=None):
+        """Record a failure the handler decided to continue past.
+
+        Continuing is often right -- a missing meter, an envelope that was not
+        there to clear. Continuing *silently* is not: the caller cannot tell a
+        no-op from a success, and neither can a test.
+        """
+        note = str(where) if exc is None else str(where) + ": " + repr(exc)[:160]
+        try:
+            self._warnings.append(note)
+        except AttributeError:
+            self._warnings = [note]
+        self.log_message("AbletonAI warning -- " + note)
+
     def _ping(self, params):
         song = self.song()
         return {
+            "unsaved_changes": getattr(self, "_mutations", 0),
+            "last_change": getattr(self, "_last_mutation", None),
             "protocol": PROTOCOL_VERSION,
             "live_version": ".".join(
                 str(x) for x in [
@@ -642,8 +688,8 @@ class AbletonAI(ControlSurface):
         if params.get("monitor_off", True):
             try:
                 track.current_monitoring_state = 2  # Off
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn("current_monitoring_state", exc)
         return {"armed": bool(track.arm)}
 
     def _record_clip(self, params):
@@ -740,8 +786,8 @@ class AbletonAI(ControlSurface):
         if params.get("clear_first", True):
             try:
                 clip.clear_envelope(parameter)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._warn("clear_envelope", exc)
 
         # Live exposes two ways in, and which one yields a *writable* envelope
         # varies. Prefer creating one outright; fall back to reading.
@@ -1005,6 +1051,8 @@ class AbletonAI(ControlSurface):
         beat = step["beat"]
         step["tries"] += 1
         if step["tries"] > 40:          # Never spin forever on one marker.
+            self._warn("gave up placing a locator at bar %.1f"
+                       % (beat / BEATS_PER_BAR))
             queue.pop(0)
             self.schedule_message(1, self._locator_step)
             return
@@ -1052,7 +1100,8 @@ class AbletonAI(ControlSurface):
                         "start_bar": here.time / BEATS_PER_BAR,
                     })
                 queue.pop(0)
-        except Exception:
+        except Exception as exc:
+            self._warn("locator step at bar %.1f" % (beat / BEATS_PER_BAR), exc)
             queue.pop(0)
 
         self.schedule_message(1, self._locator_step)
@@ -1275,16 +1324,16 @@ class AbletonAI(ControlSurface):
             track.duplicate_clip_to_arrangement(park, at)
             placed += 1
 
-        park_removed, park_error = False, None
+        park_removed = False
         try:
             park = clip_at(park_at)
             if park is None:
-                park_error = "park not found at %.3f" % park_at
+                self._warn("park clip not found at %.3f" % park_at)
             else:
                 track.delete_clip(park)
                 park_removed = True
         except Exception as exc:
-            park_error = repr(exc)
+            self._warn("delete park clip", exc)
 
         return {
             "source": {"name": source_name,
@@ -1292,7 +1341,6 @@ class AbletonAI(ControlSurface):
                        "length_bars": length / BEATS_PER_BAR},
             "placed": placed,
             "park_removed": park_removed,
-            "park_error": park_error,
             "placed_at_bars": [a / BEATS_PER_BAR for a in sorted(wanted)],
         }
 
@@ -1310,7 +1358,7 @@ class AbletonAI(ControlSurface):
         # so the old call raised an AttributeError that was swallowed and this
         # cleared nothing at all. Removing a clip also invalidates the rest of
         # the collection, so the list is re-read after every delete.
-        removed, failed = 0, None
+        removed = 0
         for track in targets:
             while True:
                 clips = list(getattr(track, "arrangement_clips", []))
@@ -1320,12 +1368,9 @@ class AbletonAI(ControlSurface):
                     track.delete_clip(clips[0])
                     removed += 1
                 except Exception as exc:
-                    failed = repr(exc)[:200]
+                    self._warn("delete_clip on track", exc)
                     break
-        result = {"removed": removed}
-        if failed:
-            result["error"] = failed
-        return result
+        return {"removed": removed}
 
     def _set_arrangement_loop(self, params):
         song = self.song()

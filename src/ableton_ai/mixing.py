@@ -167,3 +167,45 @@ def headroom_advice(track_count: int) -> str:
         "Pull the master down 4-6dB and check the meter on the loudest drop. "
         "Target -6 to -3dB peak on the mix bus before limiting."
     )
+
+
+# Which roles own which part of the spectrum. A band that is over target is
+# fixed by trimming the tracks that put energy there, not by an EQ on the
+# master -- the master cannot tell whose sub it is.
+BAND_OWNERS: dict[str, tuple[str, ...]] = {
+    "sub": ("sub", "808", "kick", "bass"),
+    "bass": ("bass", "sub", "kick", "808"),
+    "low_mid": ("chords", "pad", "keys", "perc", "snare"),
+    "mid": ("chords", "pad", "lead", "hook", "vocal", "keys", "arp"),
+    "high_mid": ("lead", "hook", "vocal", "arp", "clap", "snare"),
+    "high": ("hat", "hats", "perc", "riser", "top"),
+    "air": ("hat", "hats", "riser", "fx", "atmos"),
+}
+
+
+def trims_for_bands(
+    over: dict[str, float],
+    roles_present: dict[int, str],
+    max_trim_db: float = 3.0,
+) -> dict[int, float]:
+    """Turn "these bands are hot by this much" into per-track trims in dB.
+
+    A band that is 40% over its target does not want a 40% cut: the excess is
+    shared between every track contributing to it, and the correction is capped
+    so one measurement can never wreck a mix. Repeating the measurement is what
+    converges it, not the size of a single step.
+    """
+    trims: dict[int, float] = {}
+    for band, excess in over.items():
+        owners = BAND_OWNERS.get(band, ())
+        contributors = [i for i, role in roles_present.items() if role in owners]
+        if not contributors:
+            continue
+        # Excess is a share-of-power ratio; 10*log10 puts it in dB, and half of
+        # that is a deliberately conservative step.
+        import math
+
+        step = min(max_trim_db, abs(10.0 * math.log10(1.0 + max(0.0, excess))) / 2.0)
+        for index in contributors:
+            trims[index] = min(max_trim_db, trims.get(index, 0.0) + step)
+    return {i: -round(db, 2) for i, db in trims.items() if db >= 0.1}

@@ -8,10 +8,14 @@ place individual notes.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
+import os
 import random
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable
 
 from . import (
@@ -38,6 +42,9 @@ ROLE_COLOURS = {
 }
 
 # Roles placed once at a section's start rather than looped across it.
+# Values that mean "take this from the corpus rather than from a fixed table".
+LEARNED = frozenset(["learned", "corpus", "reference", "references", "learnt"])
+
 ONE_SHOT_ROLES = ("impact",)
 # Roles stretched to fill the section exactly once (a riser spans the whole build).
 SPAN_ROLES = ("riser",)
@@ -218,8 +225,12 @@ class Toolbox:
         return self.bridge.call("create_midi_track", **params)
 
     def tool_delete_track(self, track_index: int) -> dict:
-        """Delete a track by index."""
-        return self.bridge.call("delete_track", track_index=track_index)
+        """Delete a track by index. A snapshot is taken first, automatically."""
+        backup = self._autosnapshot("delete-track")
+        result = dict(self.bridge.call("delete_track", track_index=track_index))
+        if backup:
+            result["snapshot"] = backup
+        return result
 
     def tool_set_track_mixer(
         self,
@@ -330,6 +341,51 @@ class Toolbox:
         bars_per_chord = (source_bars or bars) / len(chords)
         return chords, bars_per_chord
 
+    # ------------------------------------------------- learned from references
+
+    def _library(self) -> corpus.Library:
+        """The learned corpus, loaded once per Toolbox."""
+        if getattr(self, "_corpus_library", None) is None:
+            self._corpus_library = corpus.Library()
+        return self._corpus_library
+
+    def _learned_degrees(self, length: int, seed: int | None) -> list[int]:
+        """A progression walked from what the corpus does, not a fixed list."""
+        library = self._library()
+        if not library.references:
+            raise ToolError(
+                "nothing has been learned yet -- run learn_references on a "
+                "folder of MIDI files first, then ask for a learned progression"
+            )
+        suggestion = library.suggest_progression(length=length, seed=seed)
+        return list(suggestion["degrees"])
+
+    def _learned_bass_style(self, requested: str) -> str:
+        """Resolve style="learned" to the articulation the corpus favours."""
+        if str(requested).lower() not in LEARNED:
+            return requested
+        profile = self._library().bass_profile()
+        style = profile.get("dominant_style")
+        if not style:
+            raise ToolError(
+                "no bass articulation has been learned yet -- run "
+                "learn_references on MIDI that contains basslines"
+            )
+        return style
+
+    def _learned_groove(self, requested: str, role: str):
+        """Resolve groove="learned" to the averaged feel of that role."""
+        if str(requested).lower() not in LEARNED:
+            return requested
+        learned = self._library().groove_for(role)
+        if learned is None:
+            raise ToolError(
+                f"no {role} groove has been learned yet -- run learn_references "
+                f"on MIDI containing {role}"
+            )
+        groove.GROOVES[learned.name] = learned
+        return learned.name
+
     def _reference_degrees(
         self, track_index: int, clip_index: int
     ) -> tuple[str, str, list[int]]:
@@ -365,6 +421,13 @@ class Toolbox:
             return self._reference_progression(
                 int(reference_track), int(reference_clip), bars
             )
+        if isinstance(degrees, str) and degrees.lower() in LEARNED:
+            resolved = self._learned_degrees(4, None)
+            chords = theory.build_progression(
+                key, scale, resolved, octave=octave, extension=extension,
+                smooth=smooth,
+            )
+            return chords, bars / len(chords)
         if isinstance(degrees, str) and degrees.lower() in theory.PROGRESSIONS:
             resolved = list(theory.PROGRESSIONS[degrees.lower()])
         else:
@@ -445,7 +508,7 @@ class Toolbox:
             rhythm=rhythm,
             octave=octave,
             velocity=velocity,
-            style=style,
+            style=self._learned_bass_style(style),
             swing=swing,
             humanise=humanise,
             seed=seed,
@@ -739,8 +802,9 @@ class Toolbox:
         material starts to sound like the records the user actually likes
         rather than like a rulebook.
         """
-        library = corpus.Library()
+        library = self._library()
         result = library.learn_folder(folder, limit=limit)
+        self._corpus_library = library
         result["summary"] = library.summary()
         return result
 
@@ -910,6 +974,41 @@ class Toolbox:
             ),
         }
 
+    def tool_corpus_profile(self) -> dict:
+        """What the learned references do: voicing, bass articulation, grooves.
+
+        This is what `"learned"` resolves to wherever a generator accepts it,
+        and it is worth reading before generating so you can say what the
+        corpus actually favours rather than guessing.
+        """
+        library = self._library()
+        if not library.references:
+            raise ToolError("nothing learned yet -- run learn_references first")
+
+        grooves = {}
+        for role in ("drums", "bass", "chords", "lead", "melody"):
+            learned = library.groove_for(role)
+            if learned is not None:
+                grooves[role] = {"swing": learned.swing, "push": learned.push}
+
+        voicing = library.voicing_profile()
+        bass = library.bass_profile()
+        return {
+            "references": len(library.references),
+            "voicing": voicing,
+            "bass": bass,
+            "grooves": grooves,
+            "top_progressions": library.common_progressions(6),
+            "top_movements": library.common_movements(8),
+            "chord_qualities": library.common_qualities(),
+            "summary": (
+                f"{len(library.references)} reference(s): "
+                f"{voicing.get('style', '?')} voicings averaging "
+                f"{voicing.get('mean_voices', '?')} voices, "
+                f"{bass.get('dominant_style', 'no')} bass"
+            ),
+        }
+
     def tool_corpus_summary(self) -> dict:
         """What the learned references have in common.
 
@@ -917,7 +1016,7 @@ class Toolbox:
         -- most usefully -- the chord-to-chord movements, which is what new
         progressions are generated from.
         """
-        library = corpus.Library()
+        library = self._library()
         if not library.references:
             raise ToolError(
                 "nothing learned yet. Put MIDI files in references/ and call "
@@ -934,10 +1033,21 @@ class Toolbox:
         them do -- so this produces something new that still behaves like the
         references.
         """
-        library = corpus.Library()
+        library = self._library()
         if not library.references:
-            raise ToolError("nothing learned yet -- call learn_references first")
-        return library.suggest_progression(length=length, start=start, seed=seed)
+            raise ToolError(
+                "nothing learned yet -- run learn_references on a folder of "
+                "MIDI files first"
+            )
+        suggestion = dict(
+            library.suggest_progression(length=length, start=start, seed=seed)
+        )
+        suggestion["learned_from"] = len(library.references)
+        suggestion["summary"] = (
+            "-".join(str(d) for d in suggestion["degrees"])
+            + f" (walked from {len(library.references)} reference(s))"
+        )
+        return suggestion
 
     def tool_list_voicings(self) -> dict:
         """Every chord extension and voicing style, and what each is for."""
@@ -999,7 +1109,8 @@ class Toolbox:
                 drum_notes = None
 
         notes = basslines.generate(
-            chords, style=style, bars_per_chord=bars_per_chord, octave=octave,
+            chords, style=self._learned_bass_style(style),
+            bars_per_chord=bars_per_chord, octave=octave,
             against_drums=drum_notes, humanise=humanise, seed=seed,
         )
         result = self._write_clip(
@@ -1041,7 +1152,7 @@ class Toolbox:
         notes = leads.generate(
             chords, root=key, scale=scale, style=style,
             bars_per_chord=bars_per_chord, octave=octave,
-            groove=groove_name, seed=seed,
+            groove=self._learned_groove(groove_name, "lead"), seed=seed,
         )
         result = self._write_clip(
             track_index, clip_index, bars, notes, name or f"{key} lead ({style})"
@@ -1088,7 +1199,9 @@ class Toolbox:
         """
         # A reference clip re-voices *that* progression rather than inventing
         # one: same key, same degrees, new spacing and extensions.
-        if reference_track is not None:
+        if isinstance(degrees, str) and degrees.lower() in LEARNED:
+            resolved = self._learned_degrees(4, seed)
+        elif reference_track is not None:
             key, scale, resolved = self._reference_degrees(
                 int(reference_track), int(reference_clip)
             )
@@ -1188,7 +1301,7 @@ class Toolbox:
             humanise=humanise,
             fill_last_bar=fill_last_bar,
             seed=seed,
-            groove=groove,
+            groove=self._learned_groove(groove, "drums"),
             instruments=instruments,
         )
         return self._write_clip(
@@ -1703,6 +1816,7 @@ class Toolbox:
             log.warning("could not read the timeline: %s", exc)
 
         if clear_first:
+            self._autosnapshot("arrange")
             # Clearing a track whose only copy of the sample is on the
             # timeline would destroy the very thing we are placing.
             clear_these = [
@@ -1909,10 +2023,259 @@ class Toolbox:
         except (AbletonError, AbletonNotRunning):
             return []
 
+    # ------------------------------------------------------------- snapshots
+
+    def _autosnapshot(self, label: str) -> str | None:
+        """Snapshot before doing something that destroys work.
+
+        Taking it is cheap and never worth failing the real operation over, so
+        an error here is logged and swallowed -- the one place where carrying on
+        silently is the right call.
+        """
+        if os.environ.get("ABLETON_AI_NO_AUTOSNAPSHOT"):
+            return None
+        try:
+            return self.tool_snapshot_set(label=f"auto-{label}")["path"]
+        except Exception as exc:                    # noqa: BLE001
+            log.warning("could not take an automatic snapshot: %s", exc)
+            return None
+
+    def _snapshot_dir(self) -> Path:
+        folder = Path(
+            os.environ.get("ABLETON_AI_SNAPSHOTS")
+            or Path.home() / "Music" / "AbletonAI" / "snapshots"
+        )
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    def tool_snapshot_set(self, label: str | None = None) -> dict:
+        """Write the whole set to a JSON file that `restore_snapshot` can replay.
+
+        Live has no undo across a restart and no way to ask whether the document
+        is dirty, so an unsaved session is one crash or one reload away from
+        gone. This is the safety net: every MIDI clip with its notes, every
+        arrangement placement, the mixer and the locators.
+
+        Audio clips are recorded but cannot be recreated -- a snapshot notes
+        them so a restore can say what it could not put back.
+        """
+        state = self.bridge.call("get_song", include_notes=True)
+        arrangement_state = self.bridge.call("get_arrangement")
+        try:
+            locators = self.bridge.call("get_locators")["locators"]
+        except (AbletonError, AbletonNotRunning):
+            locators = []
+
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        name = f"{stamp}-{label}" if label else stamp
+        path = self._snapshot_dir() / f"{name}.json"
+        payload = {
+            "taken": stamp,
+            "label": label,
+            "tempo": state.get("tempo"),
+            "tracks": state.get("tracks", []),
+            "arrangement": arrangement_state.get("tracks", []),
+            "end_bars": arrangement_state.get("end_bars"),
+            "locators": locators,
+        }
+        path.write_text(json.dumps(payload, indent=1))
+
+        midi_clips = sum(
+            1 for t in payload["tracks"] for c in (t.get("clips") or [])
+            if c.get("is_midi")
+        )
+        audio_clips = sum(
+            1 for t in payload["tracks"] for c in (t.get("clips") or [])
+            if not c.get("is_midi")
+        )
+        return {
+            "path": str(path),
+            "tracks": len(payload["tracks"]),
+            "midi_clips": midi_clips,
+            "audio_clips": audio_clips,
+            "arrangement_clips": sum(len(t.get("clips") or [])
+                                     for t in payload["arrangement"]),
+            "summary": (
+                f"snapshot of {len(payload['tracks'])} tracks "
+                f"({midi_clips} MIDI clips) to {path.name}"
+            ),
+        }
+
+    def tool_list_snapshots(self, limit: int = 15) -> dict:
+        """List saved snapshots, newest first."""
+        files = sorted(self._snapshot_dir().glob("*.json"), reverse=True)[:limit]
+        return {
+            "directory": str(self._snapshot_dir()),
+            "snapshots": [
+                {"name": f.name, "path": str(f),
+                 "size_kb": round(f.stat().st_size / 1024, 1),
+                 "taken": datetime.fromtimestamp(f.stat().st_mtime).isoformat(
+                     timespec="seconds")}
+                for f in files
+            ],
+        }
+
+    def tool_restore_snapshot(
+        self,
+        path: str | None = None,
+        restore_arrangement: bool = True,
+        clear_first: bool = True,
+    ) -> dict:
+        """Rebuild a set from a snapshot: MIDI clips, then the arrangement.
+
+        Pass no path to restore the most recent one. Audio clips cannot be
+        recreated from a snapshot -- their samples are files on disk that Live
+        placed -- so they are reported as skipped rather than silently missing.
+        """
+        if path is None:
+            files = sorted(self._snapshot_dir().glob("*.json"), reverse=True)
+            if not files:
+                raise ToolError(f"no snapshots in {self._snapshot_dir()}")
+            chosen = files[0]
+        else:
+            chosen = Path(path)
+            if not chosen.exists():
+                raise ToolError(f"no snapshot at {chosen}")
+
+        data = json.loads(chosen.read_text())
+        if data.get("tempo"):
+            self.bridge.call("set_tempo", tempo=float(data["tempo"]))
+
+        live_tracks = self.bridge.call("get_song").get("tracks", [])
+        by_name = {t.get("name"): int(t["index"]) for t in live_tracks}
+
+        restored, skipped = [], []
+        index_map: dict[int, int] = {}
+        for track in data.get("tracks", []):
+            source_index = int(track["index"])
+            target = by_name.get(track.get("name"))
+            if target is None:
+                if not track.get("is_midi", True):
+                    skipped.append({"track": track.get("name"),
+                                    "why": "audio track; recreate it by hand"})
+                    continue
+                created = self.bridge.call(
+                    "create_midi_track", index=-1, name=track.get("name")
+                )
+                target = int(created.get("track_index", len(by_name)))
+                by_name[track.get("name")] = target
+            index_map[source_index] = target
+
+            for clip in track.get("clips") or []:
+                if not clip.get("is_midi"):
+                    skipped.append({"track": track.get("name"),
+                                    "clip": clip.get("name"),
+                                    "why": "audio clip"})
+                    continue
+                self.bridge.call(
+                    "create_clip", track_index=target,
+                    clip_index=int(clip["slot"]),
+                    length_beats=float(clip["length_beats"]),
+                    notes=clip.get("notes") or [],
+                    name=clip.get("name"),
+                )
+                restored.append({"track": track.get("name"),
+                                 "slot": clip["slot"],
+                                 "notes": len(clip.get("notes") or [])})
+
+        placed = 0
+        if restore_arrangement and data.get("arrangement"):
+            targets = [index_map[int(t["index"])] for t in data["arrangement"]
+                       if int(t["index"]) in index_map]
+            if clear_first and targets:
+                self.bridge.call("clear_arrangement", track_indices=targets)
+            for lane in data["arrangement"]:
+                target = index_map.get(int(lane["index"]))
+                if target is None:
+                    continue
+                for clip in lane.get("clips") or []:
+                    # Snapshots record where a clip sat, not which session slot
+                    # it came from, so a lane whose source is gone is skipped
+                    # rather than guessed at.
+                    slot = self._slot_matching(data, int(lane["index"]), clip)
+                    if slot is None:
+                        skipped.append({"track": lane.get("name"),
+                                        "bar": clip.get("start_bars"),
+                                        "why": "no session clip to place"})
+                        continue
+                    self.bridge.call(
+                        "duplicate_clip_to_arrangement", track_index=target,
+                        clip_index=slot, start_bar=float(clip["start_bars"]),
+                        repeats=1,
+                    )
+                    placed += 1
+
+        if data.get("locators"):
+            self.bridge.call(
+                "set_locators",
+                markers=[{"name": m["name"], "start_bar": m["start_bar"]}
+                         for m in data["locators"]],
+                clear_existing=True,
+            )
+            self._await_locators(len(data["locators"]))
+
+        return {
+            "from": str(chosen),
+            "clips_restored": len(restored),
+            "arrangement_clips": placed,
+            "skipped": skipped[:40],
+            "summary": (
+                f"restored {len(restored)} clip(s) and {placed} arrangement "
+                f"placement(s) from {chosen.name}"
+                + (f"; {len(skipped)} could not be recreated" if skipped else "")
+            ),
+        }
+
+    @staticmethod
+    def _slot_matching(data: dict, track_index: int, arrangement_clip: dict):
+        """Which session slot holds the clip this arrangement placement used."""
+        for track in data.get("tracks", []):
+            if int(track["index"]) != track_index:
+                continue
+            for clip in track.get("clips") or []:
+                if clip.get("name") == arrangement_clip.get("name"):
+                    return int(clip["slot"])
+            # Same length is a weaker match, but better than dropping the lane.
+            for clip in track.get("clips") or []:
+                if abs(clip.get("length_bars", -1)
+                       - arrangement_clip.get("length_bars", -2)) < 0.01:
+                    return int(clip["slot"])
+        return None
+
+    def tool_unsaved_changes(self) -> dict:
+        """How many changes have been made to the set since it was last saved.
+
+        Live exposes no "document modified" flag, so this counts the commands
+        this remote script has run. Check it before anything that would reload
+        Live: an unsaved session does not survive a restart, and there is no
+        undo across one.
+        """
+        state = self.bridge.call("ping")
+        count = int(state.get("unsaved_changes", 0))
+        return {
+            "unsaved_changes": count,
+            "last_change": state.get("last_change"),
+            "safe_to_restart": count == 0,
+            "summary": (
+                "no unsaved changes from this session"
+                if count == 0 else
+                f"{count} change(s) since the last save -- save in Live (Cmd-S) "
+                f"or take a snapshot before restarting anything"
+            ),
+        }
+
+    def tool_mark_saved(self) -> dict:
+        """Tell the app the set has just been saved, resetting the change count."""
+        return self.bridge.call("mark_saved")
+
     def tool_clear_arrangement(self, track_indices: list[int] | None = None) -> dict:
         """Delete arrangement-timeline clips, on the given tracks or all of them."""
+        backup = self._autosnapshot("clear-arrangement")
         params = {} if not track_indices else {"track_indices": track_indices}
-        return self.bridge.call("clear_arrangement", **params)
+        result = dict(self.bridge.call("clear_arrangement", **params))
+        if backup:
+            result["snapshot"] = backup
+        return result
 
     def tool_set_arrangement_loop(
         self, start_bar: float = 0, length_bars: float = 8, enabled: bool = True
@@ -3139,6 +3502,115 @@ class Toolbox:
             return analysis.analyse(file_path, max_seconds=max_seconds).to_dict()
         except FileNotFoundError as exc:
             raise ToolError(str(exc)) from exc
+
+    def tool_mix_to_target(
+        self,
+        rounds: int = 3,
+        bars: float = 8,
+        start_bar: float = 32,
+        target_lufs: float = -8.0,
+        max_trim_db: float = 3.0,
+        apply: bool = True,
+    ) -> dict:
+        """Measure the master, correct the mix, measure again -- until it lands.
+
+        Every other mixing tool here applies a convention and hopes. This one
+        closes the loop: it resamples the master, measures where the energy
+        actually sits, trims the tracks that own whichever bands are over
+        target, and re-measures to see whether that helped.
+
+        Corrections are deliberately small and capped -- convergence comes from
+        repeating the measurement, not from one confident cut. Recording runs in
+        real time, so each round costs `bars` bars of playback.
+
+        Set `apply=False` to measure and report what it would do, changing
+        nothing.
+        """
+        if analysis is None:
+            raise ToolError(
+                "this needs numpy, soundfile and pyloudnorm: "
+                'uv pip install numpy soundfile pyloudnorm'
+            )
+
+        state = self.bridge.call("get_song")
+        roles = {
+            int(t["index"]): _role_from_name(t.get("name", ""))
+            for t in state.get("tracks", [])
+        }
+
+        history, applied = [], []
+        for round_index in range(max(1, int(rounds))):
+            capture = self.tool_capture_audio(bars=bars, start_bar=start_bar)
+            measured = analysis.analyse(
+                capture["file_path"], max_seconds=bars * 4
+            ).to_dict()
+
+            over: dict[str, float] = {}
+            under: list[str] = []
+            for band, (low, high) in analysis.EDM_TARGETS.items():
+                share = measured["band_share"].get(band, 0.0)
+                if share > high:
+                    over[band] = (share - high) / high
+                elif share < low:
+                    under.append(band)
+
+            history.append({
+                "round": round_index + 1,
+                "lufs": measured["lufs"],
+                "true_peak_db": measured["true_peak_db"],
+                "crest_db": measured["crest_db"],
+                "bands_over": {b: round(v, 3) for b, v in over.items()},
+                "bands_under": under,
+                "file": capture["file_path"],
+            })
+
+            if not over:
+                history[-1]["verdict"] = "every band inside target"
+                break
+
+            trims = mixing.trims_for_bands(over, roles, max_trim_db=max_trim_db)
+            if not trims:
+                history[-1]["verdict"] = (
+                    "bands are over but no track owns them -- "
+                    f"{sorted(over)} needs an EQ decision, not a fader"
+                )
+                break
+
+            if not apply:
+                history[-1]["would_trim"] = {
+                    f"{roles.get(i, '?')} ({i})": db for i, db in trims.items()
+                }
+                break
+
+            for index, db in trims.items():
+                try:
+                    current = self.bridge.call("get_track", track_index=index)
+                    now = mixing.live_to_db(float(current.get("volume", 0.85)))
+                    self.bridge.call(
+                        "set_track_mixer", track_index=index,
+                        volume=mixing.db_to_live(now + db),
+                    )
+                    applied.append({"round": round_index + 1, "track": index,
+                                    "role": roles.get(index), "trim_db": db})
+                except (AbletonError, AbletonNotRunning) as exc:
+                    log.warning("could not trim track %s: %s", index, exc)
+
+        last = history[-1]
+        return {
+            "rounds_run": len(history),
+            "history": history,
+            "trims_applied": applied,
+            "final_lufs": last["lufs"],
+            "target_lufs": target_lufs,
+            "summary": (
+                f"{len(history)} round(s): {last['lufs']:.1f} LUFS, "
+                f"true peak {last['true_peak_db']:.1f} dB, "
+                + ("all bands in target"
+                   if not last.get("bands_over")
+                   else f"still over in {sorted(last['bands_over'])}")
+                + (f"; {len(applied)} trim(s) applied" if applied else "")
+            ),
+        }
 
     def tool_compare_to_reference(
         self, mix_path: str, reference_path: str, max_seconds: float = 120

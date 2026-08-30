@@ -724,17 +724,30 @@ class Library:
         if not grooves:
             return None
 
+        # A stored groove is whatever an earlier version of this file wrote, so
+        # every field is read defensively. A corpus that is one release old
+        # should degrade to a flatter feel, not raise KeyError halfway through
+        # generating a track.
+        def mean_of(field_name: str, fallback: float = 0.0) -> float:
+            values = [g[field_name] for g in grooves
+                      if isinstance(g.get(field_name), (int, float))]
+            return statistics.fmean(values) if values else fallback
+
         def mean_at(field_name: str, index: int) -> float:
-            values = [g[field_name][index] for g in grooves if g.get(field_name)]
+            values = [
+                g[field_name][index] for g in grooves
+                if isinstance(g.get(field_name), (list, tuple))
+                and len(g[field_name]) > index
+            ]
             return statistics.fmean(values) if values else 0.0
 
         return Groove(
             name=f"learned_{role}",
-            swing=round(statistics.fmean(g["swing"] for g in grooves), 3),
-            push=round(statistics.fmean(g["push"] for g in grooves), 4),
+            swing=round(mean_of("swing"), 3),
+            push=round(mean_of("push"), 4),
             accents=tuple(int(round(mean_at("accents", i))) for i in range(16)),
             timing=tuple(round(mean_at("timing", i), 4) for i in range(16)),
-            jitter=round(statistics.fmean(g["jitter"] for g in grooves), 3),
+            jitter=round(mean_of("jitter"), 3),
         )
 
     def bass_profile(self) -> dict:

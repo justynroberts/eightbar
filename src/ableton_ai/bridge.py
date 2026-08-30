@@ -112,6 +112,13 @@ class AbletonBridge:
         response = self._read_line()
         if response.get("status") == "error":
             raise AbletonError(f"{command}: {response.get('message', 'unknown error')}")
+
+        result = response.get("result")
+        # Live carried on past something. Say so -- this is the difference
+        # between a command that worked and one that quietly did nothing.
+        if isinstance(result, dict) and result.get("warnings"):
+            for note in result["warnings"][:8]:
+                log.warning("%s: %s", command, note)
         return response.get("result", {})
 
     def _read_line(self) -> dict[str, Any]:

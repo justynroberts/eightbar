@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
 from fake_live import FakeBridge
 
 from ableton_ai.schemas import render_for_text_protocol, tool_schemas
@@ -853,3 +854,97 @@ def test_reference_clip_sets_the_harmonic_rhythm(box):
 
     _chords_out, bars_per_chord = box._reference_progression(0, 0, bars=4)
     assert bars_per_chord == 2.0, bars_per_chord
+
+
+def test_snapshot_round_trips_a_set(box, tmp_path, monkeypatch):
+    """A snapshot has to be able to put the notes back, or it is not a backup."""
+    monkeypatch.setenv("ABLETON_AI_SNAPSHOTS", str(tmp_path))
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    _place(box, 0, 0, _chords([[62, 65, 69], [67, 70, 74]]), bars=2)
+
+    snap = box.call("snapshot_set", {"label": "test"})
+    assert snap["midi_clips"] == 1, snap
+
+    box.bridge.tracks[0]["clips"].clear()
+    assert not box.bridge.tracks[0]["clips"]
+
+    result = box.call("restore_snapshot", {"path": snap["path"]})
+    assert result["clips_restored"] == 1, result
+    assert len(box.bridge.tracks[0]["clips"][0]["notes"]) == 6
+
+
+def test_destructive_tools_snapshot_first(box, tmp_path, monkeypatch):
+    """Clearing the arrangement must leave a way back."""
+    monkeypatch.setenv("ABLETON_AI_SNAPSHOTS", str(tmp_path))
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    _place(box, 0, 0, _chords([[62, 65, 69]]), bars=1)
+
+    result = box.call("clear_arrangement", {})
+    assert result.get("snapshot"), "no snapshot was taken before clearing"
+    assert Path(result["snapshot"]).exists()
+
+
+def _tiny_corpus(tmp_path, monkeypatch):
+    """A corpus library with two references, on disk, isolated from the user's."""
+    from ableton_ai import corpus as c
+
+    library = c.Library(path=tmp_path / "corpus.json")
+    for name, degrees, style in (("a", [1, 6, 4, 5], "rolling"),
+                                 ("b", [1, 6, 4, 5], "rolling")):
+        library.add(c.Reference(
+            name=name, path=f"/{name}.mid", tempo=126.0, bars=8.0,
+            key_root="A", key_scale="minor", key_confidence=0.9,
+            progression=degrees, qualities=["minor", "major"],
+            chords=[], notes_total=64,
+            parts={"bass": {"notes": 32, "range": [36, 48], "rhythm": "x" * 16,
+                            "groove": {"swing": 0.08, "push": -0.01,
+                                       "accents": [0] * 16,
+                                       "timing": [0.0] * 16, "jitter": 0.01},
+                            "articulation": {"style": style, "onsets_per_bar": 4.0,
+                                             "legato": 0.4}}},
+            voicing={"mean_spread_semitones": 14.0, "mean_voices": 4.0,
+                     "inversion_share": 0.3},
+        ))
+    library.save()
+    return library
+
+
+def test_generators_can_take_the_progression_from_the_corpus(box, tmp_path,
+                                                             monkeypatch):
+    """Learning was write-only: nothing generated ever changed because of it."""
+    library = _tiny_corpus(tmp_path, monkeypatch)
+    box._corpus_library = library
+
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    result = box.call("create_chord_clip", {
+        "track_index": 0, "clip_index": 0, "key": "A", "scale": "minor",
+        "degrees": "learned", "bars": 8,
+    })
+    assert result.get("summary")
+
+    walked = box.call("suggest_progression", {"length": 4, "seed": 1})
+    assert walked["degrees"], walked
+    assert walked["learned_from"] == 2
+
+
+def test_corpus_profile_reports_what_was_learned(box, tmp_path, monkeypatch):
+    box._corpus_library = _tiny_corpus(tmp_path, monkeypatch)
+    profile = box.call("corpus_profile", {})
+    assert profile["references"] == 2
+    assert profile["bass"]["dominant_style"] == "rolling"
+    assert profile["voicing"]["style"] == "open"
+
+
+def test_learned_bass_style_resolves(box, tmp_path, monkeypatch):
+    box._corpus_library = _tiny_corpus(tmp_path, monkeypatch)
+    assert box._learned_bass_style("learned") == "rolling"
+    assert box._learned_bass_style("offbeat") == "offbeat"
+
+
+def test_learned_asks_for_a_corpus_before_using_one(box):
+    """With nothing learned, say so rather than silently falling back."""
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    with pytest.raises(ToolError, match="learn_references"):
+        box.call("create_chord_clip", {
+            "track_index": 0, "clip_index": 0, "degrees": "learned",
+        })

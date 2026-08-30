@@ -7,6 +7,7 @@ socket is opened.
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
 
 from ableton_ai import arrangement, generators, theory, variations
 
@@ -197,3 +198,47 @@ def test_placeholder_roles_are_reserved_in_edm_templates():
         roles = {r for s in arrangement.plan(360, 128, name) for r in s.roles}
         assert "vocal" in roles
         assert "riser" in roles and "impact" in roles
+
+
+def test_learned_groove_survives_an_older_corpus_entry():
+    """A stored groove missing a field must degrade, not raise.
+
+    corpus.json is written by whichever version last ran. Reading a field that
+    a previous release did not write raised KeyError in the middle of
+    generating, which is a crash caused purely by upgrading.
+    """
+    from ableton_ai import corpus as c
+
+    library = c.Library(path=Path("/nonexistent/corpus.json"))
+    library.references["old"] = c.Reference(
+        name="old", path="/old.mid", tempo=124.0, bars=8.0,
+        key_root="A", key_scale="minor", key_confidence=0.8,
+        parts={"drums": {"notes": 16, "groove": {"swing": 0.1}}},
+    )
+    learned = library.groove_for("drums")
+    assert learned is not None
+    assert learned.swing == 0.1
+    assert learned.jitter == 0.0
+    assert len(learned.accents) == 16
+
+
+def test_band_trims_are_shared_and_capped():
+    """One measurement must never be allowed to wreck a mix.
+
+    A band 40% over target does not want a 40% cut: the excess belongs to every
+    track feeding that band, and convergence comes from re-measuring rather than
+    from the size of one step.
+    """
+    from ableton_ai import mixing
+
+    roles = {0: "kick", 1: "bass", 2: "hat", 3: "lead"}
+    trims = mixing.trims_for_bands({"sub": 0.5}, roles, max_trim_db=3.0)
+    assert set(trims) == {0, 1}, trims          # only the tracks that own sub
+    assert all(-3.0 <= db < 0 for db in trims.values()), trims
+
+    # An absurd excess still cannot exceed the cap.
+    extreme = mixing.trims_for_bands({"sub": 40.0}, roles, max_trim_db=3.0)
+    assert all(db == -3.0 for db in extreme.values()), extreme
+
+    # A band nobody owns produces no trim rather than a guess.
+    assert mixing.trims_for_bands({"air": 0.5}, {0: "kick"}) == {}

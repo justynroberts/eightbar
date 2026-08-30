@@ -19,6 +19,13 @@ from .tools import Toolbox
 
 # Prose for parameters whose meaning isn't obvious from the name alone.
 PARAM_DOCS: dict[str, str] = {
+    "degrees": (
+        "The chord progression, as scale degrees (\"1-6-4-5\" or [1, 6, 4, 5]) "
+        "or the name of a stock progression. Pass \"learned\" to walk the "
+        "chord-to-chord moves of the references in the corpus, which is how a "
+        "generated progression comes out sounding like the material that was "
+        "fed in rather than like a preset. Ignored when reference_track is set."
+    ),
     "reference_track": (
         "Index of a track whose clip already holds the harmony this part should "
         "follow. When set, the key, scale, chord qualities and harmonic rhythm "
@@ -45,7 +52,10 @@ PARAM_DOCS: dict[str, str] = {
     "extension": "Chord size: 'triad', 'seventh' or 'ninth'.",
     "rhythm": f"Rhythm pattern. One of: {', '.join(sorted(generators.RHYTHM_PATTERNS))}.",
     "pattern": f"Drum pattern. One of: {', '.join(sorted(generators.DRUM_PATTERNS))}.",
-    "style": "Playing style for the part.",
+    "style": (
+        "Playing style for the part. \"learned\" takes the articulation the "
+        "corpus favours, from the references learn_references was run on."
+    ),
     "velocity": "Base MIDI velocity, 1-127.",
     "swing": "Swing amount 0.0-1.0; delays off-beat sixteenths.",
     "humanise": "Timing/velocity jitter, 0.0-1.0. Keep low (0.1-0.3) for EDM.",
@@ -109,8 +119,8 @@ ENUMS: dict[str, list[str]] = {
     "voicing": _vocab(voicings.STYLES, voicings.ALIASES),
     "extension": voicings.extension_vocabulary(),
     "pattern": _vocab(generators.DRUM_PATTERNS),
-    "groove": _vocab(groove.GROOVES, groove.ALIASES),
-    "groove_name": _vocab(groove.GROOVES, groove.ALIASES),
+    "groove": _vocab(groove.GROOVES, groove.ALIASES, ["learned"]),
+    "groove_name": _vocab(groove.GROOVES, groove.ALIASES, ["learned"]),
     "genre": _vocab(presets.GENRE_CHARACTER),
     "patch": _vocab(presets.RECIPES, presets.ALIASES),
     "role": arrangement.role_vocabulary(),
@@ -185,7 +195,9 @@ ITEM_SCHEMAS: dict[str, dict[str, Any]] = {
 TOOL_ENUMS: dict[str, dict[str, list[str]]] = {
     "create_varied_chords": {"rhythm": _vocab(generators.CHORD_COMPS)},
     "create_chord_clip": {"rhythm": _vocab(generators.RHYTHM_PATTERNS)},
-    "create_styled_bass": {"style": _vocab(basslines.STYLES, basslines.ALIASES)},
+    "create_styled_bass": {
+        "style": _vocab(basslines.STYLES, basslines.ALIASES, ["learned"])
+    },
     "create_bass_clip": {
         "style": ["fifth", "octave", "root", "walk"],
         "rhythm": _vocab(generators.RHYTHM_PATTERNS),
