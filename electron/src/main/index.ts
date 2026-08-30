@@ -23,6 +23,9 @@ const bridge = new AbletonBridge(
 );
 
 const agent = new AgentSidecar();
+// The app's own location is the only reliable anchor: a bundle launched from
+// Finder has `/` as its working directory.
+agent.appPath = app.getAppPath();
 let window: BrowserWindow | null = null;
 
 /** Remembered size and position, so the dock stays where it was put. */

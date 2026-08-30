@@ -16,23 +16,62 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export interface AgentEvent {
   kind: 'text' | 'tool_start' | 'tool_end' | 'error' | 'done' | 'end';
   [key: string]: unknown;
 }
 
-/** Where the Python core lives, relative to this Electron project. */
-const PROJECT_ROOT = resolve(process.cwd(), '..');
+/**
+ * Find the Python core.
+ *
+ * Deriving this from `process.cwd()` is wrong: a bundle launched from Finder
+ * inherits `/` as its working directory, so the search looked for `/.venv` and
+ * the app only ever worked when started from a terminal inside the checkout.
+ *
+ * Walk up from the app itself instead, looking for a directory that holds both
+ * a `pyproject.toml` and a virtualenv. That finds it in development and when
+ * the built app sits inside the checkout, and fails honestly everywhere else.
+ */
+function findProjectRoot(appPath: string): string | null {
+  const candidates: string[] = [];
 
-function pythonExecutable(): string | null {
-  const candidates = [
-    process.env.ABLETON_AI_PYTHON,
-    join(PROJECT_ROOT, '.venv/bin/python'),
-    join(PROJECT_ROOT, '.venv/bin/python3'),
-  ].filter(Boolean) as string[];
-  return candidates.find((p) => existsSync(p)) ?? null;
+  const configured = process.env.ABLETON_AI_ROOT;
+  if (configured) candidates.push(configured);
+
+  // Walk up from the app bundle, then from the working directory.
+  for (const start of [appPath, process.cwd()]) {
+    let dir = start;
+    for (let depth = 0; depth < 8; depth += 1) {
+      candidates.push(dir);
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+
+  for (const dir of candidates) {
+    if (
+      existsSync(join(dir, 'pyproject.toml')) &&
+      (existsSync(join(dir, '.venv/bin/python')) ||
+        existsSync(join(dir, '.venv/bin/python3')))
+    ) {
+      return dir;
+    }
+  }
+  return null;
+}
+
+function pythonExecutable(root: string | null): string | null {
+  const explicit = process.env.ABLETON_AI_PYTHON;
+  if (explicit && existsSync(explicit)) return explicit;
+  if (!root) return null;
+  return (
+    [join(root, '.venv/bin/python'), join(root, '.venv/bin/python3')].find((p) =>
+      existsSync(p),
+    ) ?? null
+  );
 }
 
 async function freePort(): Promise<number> {
@@ -48,6 +87,9 @@ async function freePort(): Promise<number> {
 }
 
 export class AgentSidecar {
+  /** Where the app itself lives; the search for the core starts here. */
+  appPath: string = process.cwd();
+
   private child: ChildProcess | null = null;
   private port = 0;
   private starting: Promise<void> | null = null;
@@ -68,17 +110,22 @@ export class AgentSidecar {
     if (this.starting) return this.starting;
 
     this.starting = (async () => {
-      const python = pythonExecutable();
-      if (!python) {
+      const root = findProjectRoot(this.appPath);
+      const python = pythonExecutable(root);
+      if (!python || !root) {
         throw new Error(
-          'Python core not found. Expected a virtualenv at ' +
-            `${join(PROJECT_ROOT, '.venv')} — run: uv venv && uv pip install -e ".[dev]"`,
+          'Python core not found. Eightbar looked for a directory containing ' +
+            'both pyproject.toml and .venv, starting from the app and its ' +
+            `working directory (searched from ${this.appPath}). Either run the ` +
+            'app from inside the checkout, or set ABLETON_AI_ROOT to the ' +
+            'project directory. To create the environment: ' +
+            'uv venv && uv pip install -e ".[dev]"',
         );
       }
 
       this.port = await freePort();
       const child = spawn(python, ['-m', 'ableton_ai.server'], {
-        cwd: PROJECT_ROOT,
+        cwd: root,
         env: {
           ...process.env,
           ABLETON_AI_UI_PORT: String(this.port),
