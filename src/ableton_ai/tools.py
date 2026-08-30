@@ -74,6 +74,27 @@ def _role_from_name(name: str) -> str:
     return "lead"
 
 
+def _role_overrides(tracks: list | None) -> dict[int, str]:
+    """Role overrides from a list that may hold dicts *or* bare track indices.
+
+    The documented shape is [{"track_index": 3, "role": "bass"}], but a bare
+    [3] is what gets passed when the caller means "this track" and has no role
+    in mind. Subscripting that int raised a TypeError from inside the tool,
+    which surfaced as an unhelpful "bad arguments". A bare index simply carries
+    no override, leaving the role to be inferred from the track name.
+    """
+    out: dict[int, str] = {}
+    for entry in tracks or []:
+        if isinstance(entry, dict):
+            if "track_index" in entry and entry.get("role"):
+                out[int(entry["track_index"])] = arrangement.normalise_role(
+                    str(entry["role"])
+                )
+        elif isinstance(entry, (int, float)):
+            continue  # An index on its own says nothing about the role.
+    return out
+
+
 def _has_session_clip(bridge, entry: dict) -> bool:
     """True when at least one of the entry's session slots holds a clip."""
     for ci in _slots_for(entry):
@@ -1601,12 +1622,17 @@ class Toolbox:
             )
         return result
 
-    def _await_locators(self, expected: int, timeout: float = 20.0) -> list[dict]:
-        """Locators are placed a tick at a time; wait for the queue to drain."""
+    def _await_locators(self, expected: int, timeout: float = 60.0) -> list[dict]:
+        """Locators are placed a tick at a time; wait for the queue to drain.
+
+        The count drops before it climbs -- existing markers are cleared first --
+        so "stopped changing" is only trusted once it has stopped for a good
+        while, and never before the queue has had time to reach the create phase.
+        """
         deadline = time.time() + timeout
         last, stable = -1, 0
         while time.time() < deadline:
-            time.sleep(0.25)
+            time.sleep(0.4)
             try:
                 found = self.bridge.call("get_locators")["locators"]
             except (AbletonError, AbletonNotRunning):
@@ -1615,7 +1641,7 @@ class Toolbox:
                 return found
             stable = stable + 1 if len(found) == last else 0
             last = len(found)
-            if stable >= 8:
+            if stable >= 25:
                 return found
         try:
             return self.bridge.call("get_locators")["locators"]
@@ -2324,10 +2350,7 @@ class Toolbox:
         e.g. [{"track_index": 3, "role": "bass"}].
         """
         state = self.bridge.call("get_song")
-        overrides = {
-            int(t["track_index"]): str(t["role"]).lower()
-            for t in (tracks or []) if "track_index" in t and "role" in t
-        }
+        overrides = _role_overrides(tracks)
 
         applied = []
         for track in state.get("tracks", []):
@@ -2454,10 +2477,7 @@ class Toolbox:
         `scale` multiplies everything, so 0.5 is a drier mix overall.
         """
         state = self.bridge.call("get_song")
-        overrides = {
-            int(t["track_index"]): str(t["role"]).lower()
-            for t in (tracks or []) if "track_index" in t and "role" in t
-        }
+        overrides = _role_overrides(tracks)
 
         applied, failed = [], []
         for track in state.get("tracks", []):
@@ -2743,10 +2763,7 @@ class Toolbox:
         most reliably makes a busy mix sound bigger.
         """
         state = self.bridge.call("get_song")
-        overrides = {
-            int(t["track_index"]): str(t["role"]).lower()
-            for t in (tracks or []) if "track_index" in t and "role" in t
-        }
+        overrides = _role_overrides(tracks)
 
         done, skipped = [], []
         for track in state.get("tracks", []):

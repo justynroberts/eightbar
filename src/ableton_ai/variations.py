@@ -192,7 +192,40 @@ def humanise_more(
     return out
 
 
+def staccato(notes: list[Note], amount: float = 0.35) -> list[Note]:
+    """Shorten every note towards a stab, keeping its start where it is."""
+    shortest = 0.05
+    keep = max(0.1, 1.0 - min(0.9, amount * 2.0))
+    out = _clone(notes)
+    for note in out:
+        note["duration"] = max(shortest, note["duration"] * keep)
+    return out
+
+
+def legato(notes: list[Note], amount: float = 0.35) -> list[Note]:
+    """Stretch each note towards the next one, so the line joins up."""
+    out = sorted(_clone(notes), key=lambda n: (n["start"], n["pitch"]))
+    for index, note in enumerate(out):
+        following = [n for n in out[index + 1:] if n["start"] > note["start"]]
+        if not following:
+            continue
+        gap = following[0]["start"] - note["start"]
+        note["duration"] = max(note["duration"], gap * (1.0 + amount))
+    return out
+
+
+def velocity_scale(notes: list[Note], factor: float) -> list[Note]:
+    out = _clone(notes)
+    for note in out:
+        note["velocity"] = max(1, min(127, int(round(note["velocity"] * factor))))
+    return out
+
+
 MUTATIONS: dict[str, Mutation] = {
+    "staccato": staccato,
+    "legato": legato,
+    "softer": lambda n, **k: velocity_scale(n, 0.75),
+    "louder": lambda n, **k: velocity_scale(n, 1.25),
     "thin": thin,
     "densify": densify,
     "octave_up": lambda n, **k: octave_shift(n, 1),
@@ -222,7 +255,45 @@ RECIPES: dict[str, list[str]] = {
     "looser": ["humanise", "thin"],
     "flipped": ["rotate", "accent"],
     "climax": ["densify", "octave_up", "velocity_ramp"],
+    "stab": ["staccato", "accent"],
+    "sustained": ["legato"],
+    "ghost": ["softer", "thin"],
+    "outro": ["thin", "softer"],
 }
+
+# Words the model reaches for that mean one of the above. Without these a
+# perfectly sensible request -- "make a stab version" -- fails at the far end
+# with a list of names nobody asked about.
+ALIASES: dict[str, str] = {
+    "stabs": "stab", "stabby": "stab", "short": "stab", "plucked": "stab",
+    "staccatto": "staccato",
+    "sustain": "sustained", "long": "sustained", "held": "sustained",
+    "pad": "sustained", "smooth": "sustained",
+    "sparse": "stripped", "sparser": "stripped", "minimal": "stripped",
+    "simpler": "stripped", "verse": "stripped", "quieter": "softer",
+    "dense": "busier", "fuller": "busier", "complex": "busier",
+    "harder": "bigger", "energetic": "bigger", "chorus": "bigger",
+    "drive": "bigger", "huge": "climax", "massive": "climax", "peak": "climax",
+    "build": "pre_drop", "build_up": "pre_drop", "buildup": "pre_drop",
+    "fill": "stutter", "glitch": "stutter", "roll": "stutter",
+    "chill": "breakdown", "calm": "breakdown", "downtempo": "breakdown",
+    "swing": "humanise", "groovy": "humanise", "loose": "looser",
+    "human": "humanise", "varied": "looser", "alt": "looser",
+    "syncopated": "rotate", "offset": "rotate", "shifted": "rotate",
+    "up": "octave_up", "down": "octave_down",
+    "halftime": "half_time", "doubletime": "double_time",
+}
+
+
+def canonical(name: str) -> str:
+    """Resolve a synonym to the mutation or recipe it means."""
+    key = str(name).strip().lower().replace(" ", "_").replace("-", "_")
+    return ALIASES.get(key, key)
+
+
+def mutation_vocabulary() -> list[str]:
+    """Every accepted word, synonyms included, for the tool schema."""
+    return sorted(set(MUTATIONS) | set(RECIPES) | set(ALIASES))
 
 
 def apply(
@@ -234,7 +305,7 @@ def apply(
     """Apply a chain of named mutations (or a recipe name) in order."""
     resolved: list[str] = []
     for name in mutations:
-        key = name.strip().lower()
+        key = canonical(name)
         if key in RECIPES:
             resolved.extend(RECIPES[key])
         else:
@@ -242,7 +313,7 @@ def apply(
 
     out = _clone(notes)
     for index, name in enumerate(resolved):
-        func = MUTATIONS.get(name)
+        func = MUTATIONS.get(canonical(name))
         if func is None:
             raise ValueError(
                 f"unknown mutation {name!r}; try one of: "

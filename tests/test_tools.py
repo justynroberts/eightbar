@@ -743,3 +743,31 @@ def test_empty_clear_list_clears_nothing(box):
 
     live.call("clear_arrangement")
     assert not live.arrangement[0], "an absent list should still clear everything"
+
+
+def test_bare_track_index_does_not_crash_mix_levels(box):
+    """tracks=[5] is a list of ints, not of {track_index, role} dicts.
+
+    Subscripting the int raised a TypeError from inside the tool, which the
+    caller saw as an unhelpful "bad arguments". A bare index just carries no
+    role override.
+    """
+    box.call("create_track", {"name": "Bass", "role": "bass"})
+    result = box.call("mix_levels", {"tracks": [0], "apply_pan": True})
+    assert result["applied"]
+
+
+def test_musical_synonyms_are_accepted_as_mutations(box):
+    """A stab is a real request; it should not come back as an unknown word."""
+    from ableton_ai import variations
+
+    notes = [{"pitch": 60, "start": i * 0.5, "duration": 0.5, "velocity": 100}
+             for i in range(8)]
+    for word in ("stab", "stabby", "sparse", "build", "chorus", "swing", "ghost"):
+        assert variations.apply(notes, [word]), word
+
+    schema = {t["name"]: t for t in __import__(
+        "ableton_ai.schemas", fromlist=["x"]).tool_schemas()}
+    allowed = schema["create_clip_variation"]["input_schema"]["properties"][
+        "mutations"]["items"]["enum"]
+    assert "stab" in allowed and "staccato" in allowed

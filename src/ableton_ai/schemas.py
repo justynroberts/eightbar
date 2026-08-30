@@ -13,7 +13,7 @@ from typing import Any, get_args, get_origin
 
 from . import (
     arrangement, basslines, generators, groove, harmony, leads, melody,
-    mixing, presets, theory, voicings,
+    mixing, presets, theory, variations, voicings,
 )
 from .tools import Toolbox
 
@@ -93,6 +93,7 @@ def _vocab(*sources: Any) -> list[str]:
 ENUMS: dict[str, list[str]] = {
     "scale": _vocab(theory.SCALES, theory.ALIASES),
     "variation": _vocab(harmony.RECIPES),
+    "mutations": variations.mutation_vocabulary(),
     "voicing": _vocab(voicings.STYLES, voicings.ALIASES),
     "extension": voicings.extension_vocabulary(),
     "pattern": _vocab(generators.DRUM_PATTERNS),

@@ -950,11 +950,15 @@ class AbletonAI(ControlSurface):
         """Drop named arrangement markers so section boundaries are visible.
 
         Live only exposes "toggle a cue at the playhead", and assigning
-        ``current_song_time`` does not take effect until the next tick. Doing
-        the whole list in one call therefore toggled every marker at whatever
-        position the playhead happened to still be at, so only the first one
-        landed. Each move and each toggle gets its own tick instead, which
-        makes this asynchronous -- callers poll ``get_locators``.
+        ``current_song_time`` does not take effect until a later tick. A single
+        pass therefore toggled markers at whatever position the playhead was
+        still at: with one tick of slack, every other marker deleted the one
+        before it and four of ten survived.
+
+        So nothing here assumes. Each step confirms the playhead actually
+        arrived before toggling, and confirms the cue exists before naming it,
+        retrying until it does. That makes the command asynchronous -- callers
+        poll ``get_locators``.
         """
         song = self.song()
         markers = params.get("markers") or []
@@ -964,26 +968,28 @@ class AbletonAI(ControlSurface):
             song.stop_playing()
         self._locator_restore = song.current_song_time
 
-        steps = []
+        queue = []
         if params.get("clear_existing", True):
             for cue in list(song.cue_points):
-                steps.append(("delete", cue.time, None))
+                queue.append({"do": "delete", "beat": cue.time,
+                              "phase": "move", "tries": 0})
         for marker in markers:
-            steps.append((
-                "create",
-                float(marker.get("start_bar", 0.0)) * BEATS_PER_BAR,
-                marker.get("name"),
-            ))
+            queue.append({
+                "do": "create",
+                "beat": float(marker.get("start_bar", 0.0)) * BEATS_PER_BAR,
+                "name": marker.get("name"),
+                "phase": "move",
+                "tries": 0,
+            })
 
-        self._locator_queue = steps
-        self._locator_moved = False
+        self._locator_queue = queue
         self._locator_done = []
-        if steps:
+        if queue:
             self.schedule_message(1, self._locator_step)
-        return {"scheduled": len(steps), "pending": True}
+        return {"scheduled": len(queue), "pending": True}
 
     def _locator_step(self):
-        """One tick of the locator queue: move the playhead, then act on it."""
+        """One tick of the locator queue. Every phase verifies before moving on."""
         song = self.song()
         queue = getattr(self, "_locator_queue", None)
         if not queue:
@@ -995,48 +1001,60 @@ class AbletonAI(ControlSurface):
                 pass
             return
 
-        kind, beat, name = queue[0]
-        if kind == "rename":
+        step = queue[0]
+        beat = step["beat"]
+        step["tries"] += 1
+        if step["tries"] > 40:          # Never spin forever on one marker.
             queue.pop(0)
+            self.schedule_message(1, self._locator_step)
+            return
+
+        def cue_at():
             for cue in song.cue_points:
                 if abs(cue.time - beat) < 0.25:
-                    try:
-                        cue.name = name
-                    except Exception:
-                        pass
-                    self._locator_done.append({
-                        "name": cue.name,
-                        "start_bar": cue.time / BEATS_PER_BAR,
-                    })
-                    break
-            self.schedule_message(1, self._locator_step)
-            return
+                    return cue
+            return None
 
-        if not self._locator_moved:
-            try:
-                song.current_song_time = beat
-            except Exception:
-                queue.pop(0)
-            self._locator_moved = True
-            self.schedule_message(1, self._locator_step)
-            return
-
-        self._locator_moved = False
-        queue.pop(0)
-        existing = [c for c in song.cue_points if abs(c.time - beat) < 0.25]
         try:
-            if kind == "delete":
-                if existing:
-                    song.set_or_delete_cue()
-            else:
-                if not existing:
-                    song.set_or_delete_cue()
-                # A cue created this tick is not in song.cue_points yet, so the
-                # rename is queued as its own step rather than done here.
-                if name:
-                    queue.insert(0, ("rename", beat, name))
+            if step["phase"] == "move":
+                # Confirm the playhead arrived. Toggling before it does is what
+                # made markers land on each other.
+                if abs(song.current_song_time - beat) > 1e-6:
+                    song.current_song_time = beat
+                else:
+                    step["phase"] = "toggle"
+                    step["tries"] = 0
+
+            elif step["phase"] == "toggle":
+                here = cue_at()
+                if step["do"] == "delete":
+                    if here is None:
+                        queue.pop(0)
+                    else:
+                        song.set_or_delete_cue()
+                else:
+                    if here is None:
+                        song.set_or_delete_cue()
+                    else:
+                        step["phase"] = "name"
+                        step["tries"] = 0
+
+            elif step["phase"] == "name":
+                here = cue_at()
+                if here is not None:
+                    if step.get("name"):
+                        try:
+                            here.name = step["name"]
+                        except Exception:
+                            pass
+                    self._locator_done.append({
+                        "name": here.name,
+                        "start_bar": here.time / BEATS_PER_BAR,
+                    })
+                queue.pop(0)
         except Exception:
-            pass
+            queue.pop(0)
+
         self.schedule_message(1, self._locator_step)
 
     def _get_locators(self, params):
