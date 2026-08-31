@@ -495,3 +495,122 @@ def test_drums_mark_the_phrase():
         )
     distinct = len({tuple(sorted(v)) for v in bars.values()})
     assert distinct >= 4, f"only {distinct} distinct bars in 8"
+
+
+# ------------------------------------------------------------- composition
+
+def test_designed_progressions_follow_their_arc():
+    """A progression is a shape drawn in tension, not a list of numbers."""
+    from ableton_ai import composing
+
+    cadence = composing.design_progression("minor", 4, "cadence", seed=1)
+    curve = composing.tension_curve(cadence, "minor")
+    assert cadence[-1] == 1, "a cadence arc must come home"
+    assert curve[-2] == max(curve), "strain must peak just before the resolution"
+
+    rise = composing.design_progression("minor", 4, "rise", seed=1)
+    assert rise[-1] == 5, "a build ends on the dominant; the drop resolves it"
+
+    calm = composing.design_progression("minor", 4, "calm", seed=1)
+    assert max(composing.tension_curve(calm, "minor")) < 0.45, calm
+
+
+def test_harmonic_plan_treats_sections_differently():
+    """The breakdown's harmony is not the drop's harmony played quieter."""
+    from ableton_ai import composing
+
+    sections = [{"name": n, "start_bar": i * 16, "bars": 16} for i, n in
+                enumerate(["intro", "build", "drop", "breakdown", "build",
+                           "drop", "outro"])]
+    plan = composing.harmonic_plan(sections, [1, 6, 3, 7], key="D", scale="minor")
+    by_name = {}
+    for entry in plan:
+        by_name.setdefault(entry["name"], []).append(entry)
+
+    assert by_name["intro"][0]["degrees"] == [1], "intros pedal the tonic"
+    assert by_name["build"][0]["degrees"][-1] == 5, "builds end on V"
+    assert by_name["breakdown"][0]["degrees"] != [1, 6, 3, 7], "breakdowns reharmonise"
+    assert by_name["drop"][0]["degrees"] == [1, 6, 3, 7]
+    assert by_name["drop"][-1]["treatment"] == "lift", "the final drop lifts"
+    assert by_name["drop"][-1]["key"] == "E", "a lift is a whole tone up from D"
+    assert by_name["outro"][0]["degrees"] == [4, 1], "outros settle plagally"
+
+
+def test_theme_parts_share_their_dna():
+    """One motif, five parts -- the bass must carry the motif's rhythm."""
+    from ableton_ai import composing, theory
+
+    chords = theory.build_progression("D", "minor", [1, 6, 3, 7], octave=3)
+    theme = composing.compose_theme("D", "minor", chords, bars_per_chord=2.0,
+                                    seed=5)
+    assert set(theme) == {"lead", "hook", "arp", "bass", "counter"}
+    for role, notes in theme.items():
+        assert notes, f"{role} came out empty"
+
+    # The bass's onsets inside a bar are the motif's rhythm: the same set of
+    # positions the lead states in its first bar.
+    def positions(notes, bar=0):
+        return {round(n["start"] % 4, 2) for n in notes
+                if bar * 4 <= n["start"] < (bar + 1) * 4}
+
+    assert positions(theme["bass"]) == positions(theme["lead"]), (
+        "the bass no longer carries the motif's rhythm"
+    )
+
+    # The hook is a fragment: strictly sparser than the lead, and higher.
+    assert len(theme["hook"]) < len(theme["lead"])
+    assert min(n["pitch"] for n in theme["hook"]) > max(
+        n["pitch"] for n in theme["counter"]
+    ) - 12
+
+
+def test_parallel_perfects_are_detected_and_absent():
+    """The counterpoint detector catches planted fifths and passes the theme."""
+    from ableton_ai import composing, theory
+
+    a = [{"pitch": 60, "start": 0.0, "duration": 1, "velocity": 90},
+         {"pitch": 62, "start": 1.0, "duration": 1, "velocity": 90}]
+    b = [{"pitch": 53, "start": 0.0, "duration": 1, "velocity": 90},
+         {"pitch": 55, "start": 1.0, "duration": 1, "velocity": 90}]
+    assert len(composing.parallel_perfects(a, b)) == 1
+
+    # Contrary motion is fine.
+    c = [{"pitch": 53, "start": 0.0, "duration": 1, "velocity": 90},
+         {"pitch": 51, "start": 1.0, "duration": 1, "velocity": 90}]
+    assert composing.parallel_perfects(a, c) == []
+
+    chords = theory.build_progression("D", "minor", [1, 6, 3, 7], octave=3)
+    theme = composing.compose_theme("D", "minor", chords, bars_per_chord=2.0,
+                                    seed=5)
+    hits = composing.parallel_perfects(theme["bass"], theme["lead"])
+    assert len(hits) <= 1, hits
+
+
+@pytest.fixture
+def box():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from fake_live import FakeBridge
+
+    from ableton_ai.tools import Toolbox
+
+    return Toolbox(FakeBridge())
+
+
+def test_compose_theme_tool_writes_related_parts(box):
+    """The tool lands each part on the track named for its role, creating none."""
+    for name in ("Lead", "Hook", "Arp", "Bass", "Melody"):
+        box.call("create_track", {"name": name, "role": name.lower()})
+    before = len(box.bridge.tracks)
+
+    result = box.call("compose_theme", {
+        "key": "D", "scale": "minor", "degrees": [1, 6, 3, 7],
+        "bars": 8, "seed": 3,
+    })
+    assert len(box.bridge.tracks) == before, "compose_theme created a track"
+    assert len(result["written"]) == 5, result
+    for entry in result["written"]:
+        clip = box.bridge.tracks[entry["track_index"]]["clips"][0]
+        assert clip["notes"], entry

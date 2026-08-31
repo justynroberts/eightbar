@@ -81,7 +81,7 @@ REGISTER_BANDS: dict[str, tuple[int, int]] = {
     "arp": (72, 96),        # two octaves of room, sitting above the chords
     "melody": (60, 79),     # centre 70, the singing register
     "lead": (79, 98),       # centre 88, over the top of the melody
-    "hook": (84, 103),      # centre 93, the highest thing, so it cuts
+    "hook": (88, 105),      # centre 96, a clear fifth above the lead's centre
     "brass": (52, 79), "woodwind": (60, 88), "vocal": (55, 79),
 }
 

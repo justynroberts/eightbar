@@ -126,6 +126,7 @@ ENUMS: dict[str, list[str]] = {
     "role": arrangement.role_vocabulary(),
     "template": _vocab(arrangement.TEMPLATES, arrangement.ALIASES),
     "contour": ["arch", "fall", "random", "rise", "valley"],
+    "arc": ["arch", "cadence", "calm", "drive", "rise"],
     "kind": ["audio", "midi"],
     "mode": ["add", "replace"],
     "kick_mode": ["avoid", "ignore", "lock", "shorten"],

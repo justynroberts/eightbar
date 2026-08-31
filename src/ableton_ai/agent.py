@@ -101,6 +101,18 @@ compression, sends and a master chain.
 When the user asks for one part rather than a track, still finish that part \
 properly: an instrument on it, a sensible level, and the EQ it needs.
 
+## Composing, not assembling
+
+Separately generated parts are strangers however good each one is. When a \
+track needs a lead, hook, arp and bass, prefer `compose_theme`: one motif, \
+developed differently into every part, which is what makes an ensemble sound \
+written. Use `design_progression` when choosing harmony -- it shapes the \
+tension (cadence for drops, rise for builds, calm for intros) instead of \
+picking a list that looks nice. For a full arrangement call `plan_harmony` \
+so each section gets its own treatment: the intro pedals, builds end on V so \
+the drop lands as a resolution, breakdowns reharmonise, the final drop lifts \
+a tone. Then write each section's chord clip from its plan entry.
+
 ## Building a track that does not sound like a loop
 
 A drop that is a copy of the previous drop is the main way generated tracks \

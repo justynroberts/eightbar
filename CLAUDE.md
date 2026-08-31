@@ -336,3 +336,28 @@ the contour rather than tidy it.
 
 Pass `played=False` to `_write_clip` for material whose exact velocities and
 lengths are the point.
+
+## composing.py: the layer above the generators
+
+Three ideas, all standard practice, that separate composed from assembled:
+
+- **Tension.** `chord_tension` scores each chord's strain (function + quality);
+  `design_progression` picks degrees so the strain follows a named arc —
+  `cadence` peaks second-to-last and resolves, `rise` ends on V because the
+  next downbeat is the resolution, `calm`/`arch`/`drive` for other jobs.
+- **Section harmony.** `harmonic_plan` gives every section its own treatment
+  derived from the main degrees: intros pedal, builds half-cadence,
+  breakdowns reharmonise by relative substitution (same melody still fits),
+  the final drop lifts a whole tone. One progression looping for six minutes
+  is the structural tell of generated music.
+- **The motif.** `compose_theme` derives five parts from one cell: the lead
+  develops it, the hook fragments it (higher, sparser), the counter answers
+  it inverted in the gaps, the arp diminishes it, the bass plays its rhythm
+  on the roots. `build_phrase` must receive the same shape/rhythm/seed or the
+  lead silently grows from a different cell — that bug shipped once.
+
+`parallel_perfects` detects consecutive parallel fifths/octaves between lines;
+the critique flags them between bass and any melodic part. Tools:
+`design_progression`, `plan_harmony`, `compose_theme` (matches tracks by role,
+never creates one; "counter"/"melody" in a track name claims the counter-line
+before role aliasing collapses melody into lead).

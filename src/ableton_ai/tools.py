@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import (
-    arrangement, basslines, catalogue, corpus, critique, generators, groove,
-    harmony, leads, melody, mixing, perform, presets, theory, variations,
-    voicings,
+    arrangement, basslines, catalogue, composing, corpus, critique, generators,
+    groove, harmony, leads, melody, mixing, perform, presets, theory,
+    variations, voicings,
 )
 
 try:  # numpy and friends are optional; everything else works without them
@@ -1089,6 +1089,168 @@ class Toolbox:
             "summary": (
                 f"{key} {scale}, degrees {degrees or 'none found'}, "
                 f"from {source['track']!r} across {len(found)} clip(s)"
+            ),
+        }
+
+    def tool_design_progression(
+        self,
+        scale: str = "minor",
+        length: int = 4,
+        arc: str = "cadence",
+        start: int = 1,
+        seed: int | None = None,
+    ) -> dict:
+        """Design a progression by the shape of its tension, not by name.
+
+        Every chord carries measurable strain -- a dominant pulls, the tonic
+        rests, a diminished chord is all pull. `arc` says where the strain
+        should sit: "cadence" peaks second-to-last and resolves, "rise" never
+        resolves (for builds -- the drop's downbeat is the resolution),
+        "arch" for verses, "calm" for intros, "drive" for dark rooms.
+
+        Use the result as `degrees` in any generator.
+        """
+        degrees = composing.design_progression(
+            scale=scale, length=length, arc=arc, start=start, seed=seed
+        )
+        curve = composing.tension_curve(degrees, scale)
+        return {
+            "degrees": degrees,
+            "arc": arc,
+            "tension": curve,
+            "summary": (
+                "-".join(str(d) for d in degrees)
+                + f" ({arc}: tension "
+                + " -> ".join(f"{t:.2f}" for t in curve) + ")"
+            ),
+        }
+
+    def tool_plan_harmony(
+        self,
+        sections: list[dict],
+        degrees: Any = None,
+        key: str | None = None,
+        scale: str | None = None,
+    ) -> dict:
+        """Give each section of an arrangement its own harmonic treatment.
+
+        One progression looping for six minutes is the structural tell of
+        generated music. This keeps the material constant but changes the
+        treatment: the intro pedals the tonic, builds end on V so the drop's
+        downbeat lands as a resolution, breakdowns re-harmonise under the
+        same melody, and the final drop lifts a whole tone.
+
+        With no key/degrees given, they are read from the set via analyse_set.
+        Write each section's clip from its entry, then arrange as usual.
+        """
+        if key is None or degrees is None:
+            found = self.tool_analyse_set()
+            key = key or found["key"]
+            scale = scale or found["scale"]
+            degrees = degrees if degrees is not None else found["degrees"]
+        resolved = theory.parse_degrees(degrees) if not isinstance(degrees, list)             else [int(d) for d in degrees]
+        plan = composing.harmonic_plan(
+            sections, resolved, key=key, scale=scale or "minor"
+        )
+        return {
+            "key": key,
+            "scale": scale or "minor",
+            "sections": plan,
+            "summary": " | ".join(
+                f"{p.get('name', '?')}: {p['treatment']}"
+                + (f" in {p['key']}" if p["key"] != key else "")
+                for p in plan
+            ),
+        }
+
+    def tool_compose_theme(
+        self,
+        key: str = "A",
+        scale: str = "minor",
+        degrees: Any = "1-6-3-7",
+        bars: float = 8,
+        clip_index: int = 0,
+        tracks: list[dict] | None = None,
+        seed: int | None = None,
+        shape: str = "arch",
+        rhythm: str = "syncopated",
+        reference_track: int | None = None,
+        reference_clip: int = 0,
+    ) -> dict:
+        """Compose one motif and derive a whole ensemble from it.
+
+        The lead states and develops the cell, the hook is its strongest
+        fragment an octave up, the counter-line answers it inverted in the
+        gaps, the arp runs it double-time, and the bass plays its rhythm on
+        the chord roots. Every part shares DNA, which is what makes a track
+        sound written rather than assembled -- separately generated parts are
+        strangers however good each one is.
+
+        Parts land on existing tracks matched by role (lead, hook, arp, bass;
+        the counter-line goes to a track named counter/melody if present).
+        Missing roles are reported, never created.
+        """
+        chords, bars_per_chord = self._progression(
+            key, scale, degrees, bars, 3, "triad",
+            reference_track=reference_track, reference_clip=reference_clip,
+        )
+        # Chords per bar count is what compose_theme thinks in.
+        theme = composing.compose_theme(
+            key, scale, chords, bars_per_chord=bars_per_chord,
+            seed=seed, shape=shape, rhythm=rhythm,
+        )
+
+        # Map roles onto tracks: explicit list first, then by name.
+        wanted = {"lead", "hook", "arp", "bass", "counter"}
+        targets: dict[str, int] = {}
+        if tracks:
+            for entry in tracks:
+                role = str(entry.get("role", "")).lower()
+                if role in wanted and "track_index" in entry:
+                    targets[role] = int(entry["track_index"])
+        else:
+            state = self.bridge.call("get_song")
+            for track in state.get("tracks", []):
+                if not track.get("is_midi"):
+                    continue
+                name = str(track.get("name", "")).lower()
+                # "melody" aliases to "lead" in the role table, so the raw name
+                # has to be checked first or the counter-line never lands.
+                if ("counter" in name or "melody" in name) \
+                        and "counter" not in targets:
+                    targets["counter"] = int(track["index"])
+                    continue
+                role = _role_from_name(name, default=None)
+                if role in wanted and role not in targets:
+                    targets[role] = int(track["index"])
+
+        written, missing = [], []
+        for role, notes in theme.items():
+            index = targets.get(role)
+            if index is None:
+                missing.append(role)
+                continue
+            perform_role = "melody" if role == "counter" else role
+            self._write_clip(
+                index, clip_index, bars, notes,
+                name=f"Theme {role}", role=perform_role,
+            )
+            written.append({"role": role, "track_index": index,
+                            "notes": len(notes)})
+
+        if not written:
+            raise ToolError(
+                "no tracks matched any theme role (lead, hook, arp, bass, "
+                "counter/melody). Name the tracks after their roles or pass "
+                "an explicit tracks list."
+            )
+        return {
+            "written": written,
+            "missing_roles": missing,
+            "seed": seed,
+            "summary": (
+                f"one motif developed across {len(written)} part(s)"
+                + (f"; no track for {', '.join(missing)}" if missing else "")
             ),
         }
 

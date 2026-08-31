@@ -76,6 +76,10 @@ def role_vocabulary() -> list[str]:
 # Instrument names people actually use, mapped onto roles. Without these,
 # "cello" and "trumpet" matched nothing and the part fell back to a synth.
 ROLE_ALIASES.update({
+    # The counter-line from compose_theme: a second melodic voice that answers
+    # the lead. It behaves like a melody for register and dynamics.
+    "counter": "melody", "countermelody": "melody", "counter_melody": "melody",
+    "answer": "melody",
     "violin": "strings", "viola": "strings", "cello": "strings",
     "double_bass": "strings", "contrabass": "strings", "orchestra": "strings",
     "orchestral": "strings", "ensemble": "strings", "section": "strings",

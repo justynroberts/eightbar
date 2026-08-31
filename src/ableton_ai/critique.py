@@ -270,6 +270,28 @@ def check_ensemble(parts: Sequence[Part]) -> list[Finding]:
                         "one plays the root, the other the movement -- not both",
                     ))
 
+    # --- counterpoint -----------------------------------------------------
+    # Parallel fifths and octaves fuse two lines into one thick one, which is
+    # why four centuries of teaching bans them between independent parts.
+    from . import composing
+
+    basses = [p for p in pitched if p.role in ("bass", "sub", "808")]
+    melodic = [p for p in pitched if p.role in TOP_LINE
+               or p.role in ("piano", "guitar", "strings")]
+    for low_part in basses:
+        for high_part in melodic:
+            hits = composing.parallel_perfects(low_part.notes, high_part.notes)
+            moves = min(len(low_part.notes), len(high_part.notes))
+            if moves and len(hits) >= max(2, moves // 8):
+                found.append(Finding(
+                    "medium", f"{low_part.name} + {high_part.name}",
+                    "parallel fifths/octaves fuse the lines",
+                    f"{len(hits)} parallel perfect(s), e.g. "
+                    f"{hits[0]['interval']} at beat {hits[0]['at_beat']}",
+                    "move one line by contrary motion, or shift the offending "
+                    "notes to a third or sixth",
+                ))
+
     # --- is anything actually holding the harmony -------------------------
     if pitched and not any(
         p.role in ("chords", "pad", "keys", "piano", "strings", "organ", "guitar")
