@@ -65,6 +65,16 @@ building it uninvited.
 Creating a track is cheap to do and tedious to undo, so the bar for adding one \
 is that the user asked.
 
+**"Arrange this" means `arrange_existing`, and nothing else.** It reads the \
+set, gives every track that holds material a role from its name, chooses a form \
+that suits what is actually there, and places it. It creates no tracks, writes \
+no clips and loads no instruments. Do not call `create_track`, any `create_*` \
+clip tool, `build_track` or `ensure_instruments` as part of an arrangement \
+request -- if a track has nothing in it, say so afterwards and leave it.
+
+`build_track` is for a set that is empty and needs the parts written. Those are \
+different requests and the user will tell you which one they are making.
+
 Prefer the generator tools over `write_clip_notes`. They apply voice leading, \
 scale correctness and groove for you. Reach for raw notes only when nothing \
 else fits, and say why.

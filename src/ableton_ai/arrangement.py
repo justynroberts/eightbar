@@ -9,6 +9,7 @@ so sections always land on phrase boundaries.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Iterable
 
 BEATS_PER_BAR = 4.0
 
@@ -467,3 +468,36 @@ def bars_to_seconds(bars: float, tempo: float) -> float:
 
 def seconds_to_bars(seconds: float, tempo: float) -> float:
     return seconds * tempo / 60.0 / BEATS_PER_BAR
+
+
+# Which template suits a set, judged by what is in it. Ordered most specific
+# first: the first whose "needs" are all present wins.
+TEMPLATE_FOR_ROLES: tuple[tuple[str, frozenset[str], frozenset[str]], ...] = (
+    # name,          needs,                                  forbids
+    ("cinematic",    frozenset({"strings"}),                 frozenset({"kick"})),
+    ("score",        frozenset({"piano", "pad"}),            frozenset({"kick"})),
+    ("chamber",      frozenset({"piano"}),                   frozenset({"kick", "bass"})),
+    ("ambient",      frozenset({"pad"}),                     frozenset({"kick"})),
+    ("jazz",         frozenset({"piano", "bass", "drums"}),  frozenset({"riser"})),
+    ("song",         frozenset({"guitar", "vocal"}),         frozenset()),
+    ("lo_fi",        frozenset({"piano", "drums"}),          frozenset({"riser"})),
+    ("trance",       frozenset({"riser", "lead", "kick"}),   frozenset()),
+    ("progressive_house", frozenset({"arp", "kick", "bass"}), frozenset()),
+    ("house",        frozenset({"kick", "bass"}),            frozenset()),
+    ("techno",       frozenset({"kick"}),                    frozenset()),
+)
+
+
+def template_for(roles: Iterable[str]) -> str:
+    """Pick an arrangement form that suits the material actually present.
+
+    A set with no drums is not a house track. Arranging one as house produces a
+    build-up into a drop that never arrives, which is the single most obvious
+    way a generated arrangement sounds wrong.
+    """
+    present = {normalise_role(r) or r for r in roles}
+    for name, needs, forbids in TEMPLATE_FOR_ROLES:
+        if needs <= present and not (forbids & present):
+            return name
+    # Something tonal but unclassifiable: a shape that assumes nothing.
+    return "ambient"

@@ -988,3 +988,56 @@ def test_part_level_drum_patterns_exist(box):
 def test_an_unknown_tool_suggests_a_real_one(box):
     with pytest.raises(ToolError, match="Did you mean"):
         box.call("create_drums_clip", {})
+
+
+def test_arrange_existing_creates_nothing(box):
+    """"Arrange this" means arrange this. It kept coming back with new tracks."""
+    for name, notes in (("Kick", [{"pitch": 36, "start": 0.0, "duration": 0.5,
+                                   "velocity": 110}]),
+                        ("Bass", [{"pitch": 40, "start": 0.0, "duration": 1.0,
+                                   "velocity": 100}]),
+                        ("Chords", _chords([[60, 64, 67]]))):
+        box.call("create_track", {"name": name, "role": name.lower()})
+    for index in range(3):
+        _place(box, index, 0, [{"pitch": 60, "start": 0.0, "duration": 1.0,
+                                "velocity": 100}], bars=4)
+
+    before = len(box.bridge.tracks)
+    result = box.call("arrange_existing", {"target_seconds": 120})
+
+    assert len(box.bridge.tracks) == before, "arrange_existing created a track"
+    assert result["created_nothing"] is True
+    assert len(result["arranged"]) == 3
+    assert result["placements"] > 0
+
+
+def test_arrange_existing_picks_a_form_that_suits_the_set(box):
+    """A set with no drums is not a house track."""
+    for name in ("Strings", "Piano", "Choir"):
+        box.call("create_track", {"name": name, "role": name.lower()})
+    for index in range(3):
+        _place(box, index, 0, _chords([[60, 64, 67]]), bars=4)
+
+    result = box.call("arrange_existing", {"target_seconds": 180})
+    assert result["template"] == "cinematic", result["template"]
+    assert not any(p["section"] == "drop" for p in result["detail"]), result["detail"]
+
+
+def test_arrange_existing_says_what_it_left_alone(box):
+    """An empty track is reported, not filled in."""
+    box.call("create_track", {"name": "Chords", "role": "chords"})
+    box.call("create_track", {"name": "Lead", "role": "lead"})
+    _place(box, 0, 0, _chords([[60, 64, 67]]), bars=4)
+
+    result = box.call("arrange_existing", {"target_seconds": 120})
+    assert [i["track"] for i in result["ignored"]] == ["Lead"]
+    assert len(box.bridge.tracks) == 2
+
+
+def test_arrange_existing_refuses_an_unreadable_set(box):
+    """Better to say why than to invent a set to arrange."""
+    box.call("create_track", {"name": "Audio 1"})
+    _place(box, 0, 0, [{"pitch": 60, "start": 0.0, "duration": 1.0,
+                        "velocity": 100}], bars=4)
+    with pytest.raises(ToolError, match="Rename the tracks"):
+        box.call("arrange_existing", {})

@@ -73,8 +73,14 @@ _ROLE_HINTS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _role_from_name(name: str) -> str:
-    """Guess a track's musical role from what the producer called it."""
+def _role_from_name(name: str, default: str | None = "lead") -> str | None:
+    """Guess a track's musical role from what the producer called it.
+
+    `default` is what to return when the name says nothing -- "Audio 1", "1-Serum
+    2". "lead" is a reasonable guess for mixing, where every track needs *some*
+    treatment. It is a bad one for arranging: a track nobody named would be
+    placed in every drop as a lead. Pass None there and skip it instead.
+    """
     lowered = (name or "").lower()
     direct = arrangement.normalise_role(lowered)
     if direct:
@@ -82,7 +88,7 @@ def _role_from_name(name: str) -> str:
     for needle, role in _ROLE_HINTS:
         if needle in lowered:
             return role
-    return "lead"
+    return default
 
 
 def _role_overrides(tracks: list | None) -> dict[int, str]:
@@ -1750,6 +1756,88 @@ class Toolbox:
             phrase_bars=phrase_bars,
         )
         return arrangement.summarise(sections, tempo)
+
+    def tool_arrange_existing(
+        self,
+        target_seconds: float = 360,
+        template: str | None = None,
+        clear_first: bool = True,
+    ) -> dict:
+        """Arrange the tracks already in the set. Creates nothing.
+
+        This is "arrange what I have" as one call. Every track that holds
+        material -- a session clip, or a sample sitting on the timeline -- is
+        given a role from its name and placed. No track is created, no clip is
+        generated, no instrument is loaded, whatever is missing.
+
+        The template is chosen from what the set actually contains unless you
+        name one: a set with no drums is not a house track, and arranging it as
+        one produces a build-up to a drop that never arrives.
+
+        Use `build_track` when the set is empty and the parts need writing
+        first. Use this when they already exist.
+        """
+        state = self.bridge.call("get_song")
+        tempo = float(state.get("tempo", 124.0))
+
+        try:
+            on_timeline = {
+                int(t["index"]) for t in
+                self.bridge.call("get_arrangement").get("tracks", [])
+                if t.get("clips")
+            }
+        except (AbletonError, AbletonNotRunning):
+            on_timeline = set()
+
+        playable, ignored = [], []
+        for track in state.get("tracks", []):
+            index = int(track["index"])
+            slots = [int(c["slot"]) for c in (track.get("clips") or [])]
+            if not slots and index not in on_timeline:
+                ignored.append({"track": track.get("name"),
+                                "why": "nothing in it to place"})
+                continue
+            role = _role_from_name(track.get("name", ""), default=None)
+            if not role:
+                ignored.append({"track": track.get("name"),
+                                "why": "no role could be read from the name"})
+                continue
+            entry = {"track_index": index, "role": role}
+            if slots:
+                entry["clip_indices"] = sorted(slots)
+            playable.append(entry)
+
+        if not playable:
+            raise ToolError(
+                "nothing in this set to arrange: no track holds a clip whose "
+                "name says what it is. Rename the tracks after their role "
+                "(Kick, Bass, Chords, Strings...) or use build_track to write "
+                "the parts first."
+            )
+
+        roles_present = {e["role"] for e in playable}
+        chosen = template or arrangement.template_for(roles_present)
+        sections = arrangement.plan(
+            target_seconds=target_seconds, tempo=tempo, template=chosen
+        )
+        plan = arrangement.summarise(sections, tempo)
+
+        result = self.tool_arrange_to_timeline(
+            sections=plan["sections"], tracks=playable, clear_first=clear_first
+        )
+        result["template"] = chosen
+        result["arranged"] = [
+            {"track_index": e["track_index"], "role": e["role"]} for e in playable
+        ]
+        result["ignored"] = ignored
+        result["created_nothing"] = True
+        result["summary"] = (
+            f"arranged {len(playable)} existing track(s) as {chosen!r}: "
+            f"{result['end_bars']:.0f} bars, "
+            f"{result['duration_seconds'] / 60:.1f} min"
+            + (f"; {len(ignored)} track(s) had nothing to place" if ignored else "")
+        )
+        return result
 
     def tool_arrange_to_timeline(
         self,
