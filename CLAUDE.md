@@ -361,3 +361,23 @@ the critique flags them between bass and any melodic part. Tools:
 `design_progression`, `plan_harmony`, `compose_theme` (matches tracks by role,
 never creates one; "counter"/"melody" in a track name claims the counter-line
 before role aliasing collapses melody into lead).
+
+Wired into the pipeline, not just available beside it:
+
+- `melody.write` places **appoggiaturas** -- at a chord change's strong beat,
+  with probability `tension * 0.9`, the note lands one step above the nearest
+  chord tone and resolves down into it, held (`gate 1.0`) and weighted (+8
+  velocity). Clipping the lean short turns it back into a wrong note.
+- `arrange_to_timeline` entries take `clip_by_section` ({section name ->
+  slot}), which is how a breakdown gets its own material. The named slot's
+  length is cached but **must not** join the variation ladder -- it did once,
+  and every full-energy drop picked the breakdown clip as "the biggest
+  variation".
+- `build_track` composes: the three melodic parts come from one
+  `compose_theme` motif, the chords track gets `[half cadence]` (slot 6) and
+  `[reharmonised]` (slot 7) clips chosen by section, and the lead's
+  `[augmented]` half-time restatement plays over the breakdown -- with "lead"
+  added back into breakdown sections, since most templates strip it out.
+- `compose_theme(rhythm="learned")` builds the cell from a corpus-extracted
+  motif (`motif.cell_from_learned`): reference contour and rhythm, developed
+  exactly like a written cell.

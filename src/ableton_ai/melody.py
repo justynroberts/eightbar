@@ -222,6 +222,7 @@ def write(
                 previous = None
                 continue
 
+            appoggiatura = False
             chord = chord_at(at)
             tones = _chord_indices(pitches, chord)
             # Only consider chord tones the phrase is allowed to reach.
@@ -261,6 +262,24 @@ def write(
                 # The climax: the highest chord tone in reach.
                 reachable = [t for t in tones if t <= ceiling]
                 index = max(reachable) if reachable else min(tones, key=lambda i: abs(i - ceiling))
+            elif (
+                strength == STRONG
+                and previous is not None
+                and position != 0
+                and any(abs(at - start) < 1e-6 for start, _end, _c in boundaries)
+                and rng.random() < tension * 0.9
+            ):
+                # The appoggiatura: land ON the strong beat of a chord change
+                # one scale step above the nearest chord tone, then resolve
+                # down into it. This is the most expressive dissonance there
+                # is -- the note "leans" on the harmony -- and it only works
+                # on the strong beat; the same note on a weak beat is merely
+                # a passing tone. It is why a sung line aches where a
+                # sequenced one just proceeds.
+                target = min(tones, key=lambda i: abs(i - previous))
+                index = min(len(pitches) - 1, target + 1)
+                pending_resolution = target
+                appoggiatura = True
             elif strength == STRONG or previous is None:
                 # Strong beats take chord tones -- that is what makes the line
                 # sound like it belongs to the harmony. But a third repeat of
@@ -314,6 +333,10 @@ def write(
             elif position == phrase_peak:
                 length = max(length, 1.5)
                 gate = 0.98
+            elif appoggiatura:
+                # The lean is held into its resolution; clipping it short
+                # turns an appoggiatura back into a wrong note.
+                gate = 1.0
             else:
                 gate = 0.72
 
@@ -324,6 +347,7 @@ def write(
                 "velocity": int(max(1, min(127,
                     velocity
                     + (10 if position == phrase_peak else 0)
+                    + (8 if appoggiatura else 0)
                     + (6 if strength == STRONG else -4)
                     + rng.uniform(-3, 3)))),
             })

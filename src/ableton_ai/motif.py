@@ -174,6 +174,48 @@ def answer(cell: Cell) -> Cell:
     return Cell(tuple(resolved), cell.rhythm, cell.durations, cell.accents)
 
 
+def cell_from_learned(learned: dict, seed: int | None = None) -> Cell:
+    """Turn a corpus-extracted motif into a Cell the composer can develop.
+
+    The corpus stores what it heard: semitone intervals and the gaps between
+    onsets. A Cell wants scale-step offsets and a rhythm inside one bar, so
+    intervals are mapped to their nearest diatonic step (7 steps per 12
+    semitones) and the rhythm is normalised to start at zero. The result is a
+    motif with the *contour and rhythm* of the reference, ready to be
+    rendered into any key and developed like a written one.
+    """
+    intervals = list(learned.get("intervals") or [])
+    gaps = list(learned.get("rhythm") or [])
+    if not intervals or not gaps:
+        raise ValueError("learned motif has no intervals or rhythm")
+
+    degrees = [0]
+    for semitones in intervals[:7]:
+        step = round(semitones * 7 / 12)
+        degrees.append(degrees[-1] + step)
+
+    starts = [0.0]
+    for gap in gaps[: len(degrees) - 1]:
+        starts.append(starts[-1] + max(0.125, min(2.0, float(gap))))
+    # Normalise into one bar so development operations behave.
+    span = max(starts) or 1.0
+    if span > BEATS_PER_BAR - 0.25:
+        scale_by = (BEATS_PER_BAR - 0.5) / span
+        starts = [round(t * scale_by * 4) / 4 for t in starts]
+    durations = [
+        max(0.125, (starts[i + 1] - starts[i]) * 0.9) if i + 1 < len(starts)
+        else 0.75
+        for i in range(len(starts))
+    ]
+    accents = [1 if i == 0 else 0 for i in range(len(starts))]
+    return Cell(
+        degrees=tuple(degrees[: len(starts)]),
+        rhythm=tuple(starts),
+        durations=tuple(durations),
+        accents=tuple(accents),
+    )
+
+
 DEVELOPMENTS = (
     "repeat", "sequence_up", "sequence_down", "invert", "retrograde",
     "augment", "fragment", "answer",

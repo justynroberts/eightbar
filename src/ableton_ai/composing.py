@@ -283,6 +283,45 @@ def harmonic_plan(
 
 # ---------------------------------------------------------------- the theme
 
+def _phrase_from_cell(
+    cell: motif.Cell,
+    key: str,
+    scale: str,
+    chords: list[theory.Chord],
+    bars_per_chord: float,
+    octave: int,
+    seed: int | None,
+    plan: list[str],
+) -> list[Note]:
+    """build_phrase, but from an explicit cell rather than shape/rhythm names.
+
+    This is the guarantee that every part grows from the *same* motif: the
+    cell is constructed once by the caller and passed in, so a learned cell
+    from the corpus develops exactly like a written one.
+    """
+    notes: list[Note] = []
+    for index, chord in enumerate(chords):
+        at = index * bars_per_chord * BEATS_PER_BAR
+        operation = plan[index % len(plan)]
+        variant = motif.develop(
+            cell, operation, seed=None if seed is None else seed + index
+        )
+        rendered = motif.render(
+            variant, key, scale, octave=octave,
+            anchor_degree=chord.degree, at=at,
+            velocity=92, chord_tones=chord.pitches,
+        )
+        limit = at + bars_per_chord * BEATS_PER_BAR
+        for note in rendered:
+            if float(note["start"]) < limit:
+                note["duration"] = min(
+                    float(note["duration"]), limit - float(note["start"])
+                )
+                notes.append(note)
+    notes.sort(key=lambda n: (n["start"], n["pitch"]))
+    return notes
+
+
 def _cell_rhythm_starts(cell: motif.Cell) -> list[float]:
     """Where the motif's notes fall inside its bar, in beats."""
     return [float(s) for s in cell.rhythm]
@@ -297,6 +336,7 @@ def compose_theme(
     seed: int | None = None,
     shape: str = "arch",
     rhythm: str = "syncopated",
+    cell: motif.Cell | None = None,
 ) -> dict[str, list[Note]]:
     """One motif, five parts, all of them relatives.
 
@@ -309,17 +349,16 @@ def compose_theme(
     Returns note lists by role; register and dynamics are the perform
     layer's job, so parts are rendered where the material naturally sits.
     """
-    cell = motif.make_cell(shape, rhythm, seed=seed)
+    if cell is None:
+        cell = motif.make_cell(shape, rhythm, seed=seed)
     total_bars = len(chords) * bars_per_chord
 
     # --- lead: the full statement-and-development treatment
     # The same shape/rhythm/seed as the cell above, so build_phrase constructs
     # the identical cell -- without this the lead grew from a different motif
     # and the "shared DNA" was a comment, not a fact.
-    lead = motif.build_phrase(
-        key, scale, chords, bars_per_chord=bars_per_chord,
-        shape=shape, rhythm=rhythm,
-        octave=octave + 1, seed=seed,
+    lead = _phrase_from_cell(
+        cell, key, scale, chords, bars_per_chord, octave + 1, seed,
         plan=["repeat", "sequence_up", "repeat", "answer"],
     )
 

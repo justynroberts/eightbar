@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 from . import (
     arrangement, basslines, catalogue, composing, corpus, critique, generators,
-    groove, harmony, leads, melody, mixing, perform, presets, theory,
+    groove, harmony, leads, melody, mixing, motif, perform, presets, theory,
     variations, voicings,
 )
 
@@ -806,20 +806,34 @@ class Toolbox:
             step("chords", lambda: self.tool_create_varied_chords(
                 made["Chords"], bars=8, variation="rich",
                 rhythm=recipe["chord_rhythm"], **common))
-        # Three melodic parts in the same octave is mush, however good each one
-        # is on its own. The hook owns the top, the lead sits an octave below
-        # it, and the melody lower still -- and the arrangement keeps them out
-        # of the same sections besides.
-        if "Hook" in made:
-            step("hook", lambda: self.tool_create_hook_clip(
-                made["Hook"], bars=8, octave=5, **common))
-        if "Lead" in made:
-            step("lead", lambda: self.tool_create_lead_clip(
-                made["Lead"], bars=8, style=recipe["lead_style"], octave=4,
-                **common))
-        if "Melody" in made:
-            step("melody", lambda: self.tool_create_melody_clip(
-                made["Melody"], bars=8, octave=4, variation="rich", **common))
+        # The melodic parts grow from one motif rather than three strangers:
+        # the lead develops it, the hook fragments it an octave up, and the
+        # Melody track carries the counter-line that answers it inverted.
+        # Relatedness is what makes an ensemble sound written. The melody tool
+        # remains the fallback for a set where the theme cannot land.
+        theme_tracks = [
+            {"track_index": made[n], "role": r}
+            for n, r in (("Lead", "lead"), ("Hook", "hook"),
+                         ("Melody", "counter"))
+            if n in made
+        ]
+        themed = None
+        if theme_tracks:
+            themed = step("theme", lambda: self.tool_compose_theme(
+                key=key, scale=mode, degrees=chords, bars=8,
+                tracks=theme_tracks, seed=seed))
+        if not themed:
+            if "Hook" in made:
+                step("hook", lambda: self.tool_create_hook_clip(
+                    made["Hook"], bars=8, octave=5, **common))
+            if "Lead" in made:
+                step("lead", lambda: self.tool_create_lead_clip(
+                    made["Lead"], bars=8, style=recipe["lead_style"], octave=4,
+                    **common))
+            if "Melody" in made:
+                step("melody", lambda: self.tool_create_melody_clip(
+                    made["Melody"], bars=8, octave=4, variation="rich",
+                    **common))
         if "Riser" in made:
             step("riser", lambda: self.tool_create_riser_clip(
                 made["Riser"], bars=8, key=key, scale=mode))
@@ -865,11 +879,65 @@ class Toolbox:
                 entry["clip_index"] = 0
             entries.append(entry)
 
+        # -- section harmony ---------------------------------------------
+        # The breakdown is not the drop played quieter. Write the treated
+        # chord clips into known slots and let the arrangement pick them by
+        # section name: reharmonised chords under the breakdown, a
+        # half-cadence under the build so the drop's downbeat resolves it,
+        # and the lead restated in augmentation (half-time) over the
+        # breakdown -- the familiar melody over changed ground.
+        if "Chords" in made:
+            # The recipe's progression may be a name ("emotional"), a string
+            # of degrees, or a list -- resolve it the way the generators do.
+            if isinstance(chords, str) and chords.lower() in theory.PROGRESSIONS:
+                main_degrees = list(theory.PROGRESSIONS[chords.lower()])
+            elif isinstance(chords, list):
+                main_degrees = [int(d) for d in chords]
+            else:
+                main_degrees = theory.parse_degrees(chords)
+            treatments = composing.harmonic_plan(
+                [{"name": "build"}, {"name": "breakdown"}],
+                main_degrees, key=key, scale=mode,
+            )
+            by_name = {t["name"]: t for t in treatments}
+            step("build harmony", lambda: self.tool_create_varied_chords(
+                made["Chords"], clip_index=6, bars=8,
+                key=key, scale=mode, degrees=by_name["build"]["degrees"],
+                rhythm=recipe["chord_rhythm"], seed=seed,
+                name="Chords [half cadence]"))
+            step("breakdown harmony", lambda: self.tool_create_varied_chords(
+                made["Chords"], clip_index=7, bars=8,
+                key=key, scale=mode, degrees=by_name["breakdown"]["degrees"],
+                rhythm="pad", seed=seed, name="Chords [reharmonised]"))
+            for entry in entries:
+                if entry["track_index"] == made["Chords"]:
+                    entry["clip_by_section"] = {"build": 6, "breakdown": 7}
+        if "Lead" in made:
+            step("breakdown theme", lambda: self.tool_create_clip_variation(
+                made["Lead"], clip_index=0, to_clip_index=6,
+                mutations=["half_time", "softer"],
+                name="Lead [augmented]"))
+            for entry in entries:
+                if entry["track_index"] == made["Lead"]:
+                    entry["clip_by_section"] = {"breakdown": 6}
+
         plan = step("plan", lambda: self.tool_plan_arrangement(
             target_seconds=duration_seconds, tempo=bpm,
             template=recipe["template"]))
         arranged = None
         if plan:
+            # The augmented theme restatement only sounds if the lead is in
+            # the breakdown -- most templates strip it out. Familiar melody
+            # over changed harmony is the emotional centre of a breakdown,
+            # so put the lead back where the treated clip exists to carry it.
+            if "Lead" in made:
+                for section in plan["sections"]:
+                    if str(section.get("name", "")).lower() in (
+                        "breakdown", "break",
+                    ) and "lead" not in (section.get("roles") or []):
+                        section["roles"] = list(section.get("roles") or []) + [
+                            "lead"
+                        ]
             arranged = step("arrange", lambda: self.tool_arrange_to_timeline(
                 sections=plan["sections"], tracks=entries, clear_first=True))
             report["structure"] = [
@@ -1194,10 +1262,33 @@ class Toolbox:
             key, scale, degrees, bars, 3, "triad",
             reference_track=reference_track, reference_clip=reference_clip,
         )
-        # Chords per bar count is what compose_theme thinks in.
+
+        # A learned motif: the contour and rhythm of the references fed to
+        # learn_references, developed exactly like a written cell would be.
+        cell = None
+        if str(rhythm).lower() in LEARNED or str(shape).lower() in LEARNED:
+            library = self._library()
+            candidates = [
+                r.parts[part]["motif"]
+                for r in library.references.values()
+                for part in ("lead", "melody")
+                if part in r.parts and r.parts[part].get("motif")
+            ]
+            if not candidates:
+                raise ToolError(
+                    "no melodic motif has been learned yet -- run "
+                    "learn_references on MIDI that contains a lead or melody"
+                )
+            picked = candidates[(seed or 0) % len(candidates)]
+            try:
+                cell = motif.cell_from_learned(picked, seed=seed)
+            except ValueError as exc:
+                raise ToolError(f"learned motif unusable: {exc}") from exc
+            shape, rhythm = "arch", "syncopated"   # only used for reporting
+
         theme = composing.compose_theme(
             key, scale, chords, bars_per_chord=bars_per_chord,
-            seed=seed, shape=shape, rhythm=rhythm,
+            seed=seed, shape=shape, rhythm=rhythm, cell=cell,
         )
 
         # Map roles onto tracks: explicit list first, then by name.
@@ -2193,6 +2284,27 @@ class Toolbox:
         for entry in tracks:
             ti = int(entry["track_index"])
             usable: list[int] = []
+            # Slots named per-section need their lengths cached, but they are
+            # NOT part of the variation ladder -- appending them to `usable`
+            # put the breakdown's clip at the top of the escalation, and every
+            # full-energy drop picked it as "the biggest variation".
+            section_slots = {
+                int(v) for v in (entry.get("clip_by_section") or {}).values()
+            }
+            for ci in section_slots:
+                if (ti, ci) in lengths:
+                    continue
+                try:
+                    clip = self.bridge.call("get_clip", track_index=ti,
+                                            clip_index=ci)
+                    lengths[(ti, ci)] = max(
+                        1.0, clip["length_beats"] / BEATS_PER_BAR
+                    )
+                except (AbletonError, AbletonNotRunning) as exc:
+                    skipped_tracks.append({
+                        "track_index": ti, "clip_index": ci,
+                        "why": f"clip_by_section: {exc}",
+                    })
             for ci in _slots_for(entry):
                 if (ti, ci) in lengths:
                     usable.append(ci)
@@ -2264,7 +2376,15 @@ class Toolbox:
                 occurrence = seen.get(role, 0)
                 seen[role] = occurrence + 1
 
-                if len(slots) == 1:
+                by_section = entry.get("clip_by_section") or {}
+                section_name = str(section.get("name", "")).lower()
+                if section_name in by_section:
+                    # The section names its own clip: this is how a breakdown
+                    # gets the reharmonised chords and the augmented theme
+                    # rather than a quieter copy of the drop.
+                    ci = int(by_section[section_name])
+                    lengths.setdefault((ti, ci), lengths.get((ti, slots[0]), 8.0))
+                elif len(slots) == 1:
                     ci = slots[0]
                 elif policy == "cycle":
                     ci = slots[occurrence % len(slots)]

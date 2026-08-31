@@ -614,3 +614,113 @@ def test_compose_theme_tool_writes_related_parts(box):
     for entry in result["written"]:
         clip = box.bridge.tracks[entry["track_index"]]["clips"][0]
         assert clip["notes"], entry
+
+
+def test_sections_can_name_their_own_clip(box):
+    """The breakdown's clip is chosen by name, and stays out of the ladder.
+
+    First version cached the section slot by appending it to the variation
+    ladder, so every full-energy drop picked the breakdown's clip as "the
+    biggest variation".
+    """
+    box.call("create_track", {"name": "Lead", "role": "lead"})
+    for slot in (0, 1, 2, 3, 6):
+        box.bridge.call(
+            "create_clip", track_index=0, clip_index=slot, length_beats=32.0,
+            notes=[{"pitch": 70, "start": 0.0, "duration": 1, "velocity": 90}],
+            name=f"slot{slot}",
+        )
+    result = box.call("arrange_to_timeline", {
+        "sections": [
+            {"name": "drop", "start_bar": 0, "bars": 16,
+             "roles": ["lead"], "energy": 1.0},
+            {"name": "breakdown", "start_bar": 16, "bars": 16,
+             "roles": ["lead"], "energy": 0.3},
+        ],
+        "tracks": [{"track_index": 0, "role": "lead",
+                    "clip_indices": [0, 1, 2, 3],
+                    "clip_by_section": {"breakdown": 6}}],
+        "clear_first": False,
+    })
+    chosen = {d["section"]: d["clip_index"] for d in result["detail"]}
+    assert chosen["breakdown"] == 6
+    assert chosen["drop"] in (0, 1, 2, 3), chosen
+
+
+def test_build_track_treats_breakdown_harmony(box):
+    """The breakdown gets reharmonised chords and the augmented theme, not a
+    quieter copy of the drop."""
+    box.call("build_track", {"genre": "trance", "key": "A",
+                             "duration_seconds": 320, "seed": 2})
+    tracks = {t["name"]: i for i, t in enumerate(box.bridge.tracks)}
+    chord_names = {c["name"] for c in
+                   box.bridge.arrangement.get(tracks["Chords"], [])}
+    assert any("reharmonised" in n for n in chord_names), chord_names
+
+    lead_lane = box.bridge.arrangement.get(tracks["Lead"], [])
+    names = {c["name"] for c in lead_lane}
+    assert any("augmented" in n for n in names), names
+    # The drops must still carry the actual theme, not the breakdown clip.
+    assert any("Theme lead" in n for n in names), names
+
+
+def test_appoggiaturas_land_on_chord_changes_and_resolve():
+    """The expressive dissonance: lean on the new chord's strong beat, then
+    resolve down by step. At tension 0 there must be none."""
+    from ableton_ai import melody, theory
+
+    chords = theory.build_progression("D", "minor", [1, 6, 3, 7], octave=4)
+
+    def leans(notes):
+        found = 0
+        ordered = sorted(notes, key=lambda n: n["start"])
+        for index, note in enumerate(ordered):
+            if note["start"] % 8.0 != 0.0 or note["start"] == 0.0:
+                continue
+            chord = chords[int(note["start"] // 8) % 4]
+            if note["pitch"] % 12 in {p % 12 for p in chord.pitches}:
+                continue
+            found += 1
+            # It must resolve: the next note steps down into a chord tone.
+            following = ordered[index + 1:]
+            assert following, "an appoggiatura with nothing after it"
+            nxt = following[0]
+            assert nxt["pitch"] < note["pitch"], "the lean must resolve down"
+            assert nxt["pitch"] % 12 in {p % 12 for p in chord.pitches}
+        return found
+
+    tense = sum(leans(melody.write("D", "minor", chords, bars=8,
+                                   tension=0.7, seed=s)) for s in range(6))
+    assert tense >= 2, "high tension never produced an appoggiatura"
+
+    flat = sum(leans(melody.write("D", "minor", chords, bars=8,
+                                  tension=0.0, seed=s)) for s in range(6))
+    assert flat == 0, "tension 0 must mean no dissonance on the downbeat"
+
+
+def test_learned_motif_becomes_a_workable_cell():
+    """A corpus-extracted motif develops exactly like a written one."""
+    from ableton_ai import composing, motif, theory
+
+    learned = {
+        "intervals": [3, -1, -2, 2],           # semitones, as corpus stores it
+        "rhythm": [0.5, 0.5, 1.0, 0.5],        # gaps between onsets
+        "range_semitones": 5, "direction": "rising",
+    }
+    cell = motif.cell_from_learned(learned)
+    assert len(cell.degrees) == len(cell.rhythm) == len(cell.durations)
+    assert cell.rhythm[0] == 0.0
+    assert max(cell.rhythm) < 4.0, "the cell must fit inside a bar"
+
+    chords = theory.build_progression("A", "minor", [1, 6, 4, 5], octave=3)
+    theme = composing.compose_theme("A", "minor", chords, bars_per_chord=2.0,
+                                    seed=1, cell=cell)
+    assert all(theme[role] for role in ("lead", "hook", "arp", "bass", "counter"))
+
+    def positions(notes, bar=0):
+        return {round(n["start"] % 4, 2) for n in notes
+                if bar * 4 <= n["start"] < (bar + 1) * 4}
+
+    assert positions(theme["bass"]) == positions(theme["lead"]), (
+        "the learned cell's rhythm did not reach both parts"
+    )
