@@ -63,13 +63,12 @@ function createWindow(): void {
     height: workArea.height,
     x: onScreen ? store.x : workArea.x + workArea.width - width,
     y: onScreen ? store.y : workArea.y,
-    minWidth: 340,
-    maxWidth: 900,
-    minHeight: 420,
     // This is a palette that stands beside Live, not a window that covers it.
-    // Maximising defeats the whole point, and on macOS a double-click on the
-    // title bar zooms even with the button disabled -- so the system-wide
-    // preference has to be overridden too.
+    // Its size is fixed: maximising defeats the point, and dragging an edge
+    // only ever makes it overlap the set it is meant to sit next to. On macOS
+    // a double-click on the title bar zooms even with the button disabled, so
+    // the system-wide preference has to be overridden as well.
+    resizable: false,
     maximizable: false,
     fullscreenable: false,
     alwaysOnTop: store.alwaysOnTop,
@@ -120,6 +119,20 @@ function createWindow(): void {
   window.on('maximize', () => window?.unmaximize());
   window.on('enter-full-screen', () => window?.setFullScreen(false));
 
+  // The window is fixed in size but not in place, and the display it sits on
+  // can change height -- a second monitor unplugged, a dock hidden. Keep it
+  // filling the working height of whichever display it is on.
+  window.on('moved', () => {
+    if (!window || window.isDestroyed()) return;
+    const bounds = window.getBounds();
+    const { workArea } = screen.getDisplayNearestPoint({
+      x: bounds.x, y: bounds.y,
+    });
+    if (bounds.height !== workArea.height) {
+      place({ ...bounds, y: workArea.y, height: workArea.height });
+    }
+  });
+
   // Deliberately NOT setVisibleOnAllWorkspaces: on macOS that flips the app's
   // activation policy to accessory (LSUIElement), which removes the dock icon.
   // The window then has no way back once it goes behind something or is
@@ -145,6 +158,21 @@ function createWindow(): void {
   window.on('closed', () => {
     window = null;
   });
+}
+
+/**
+ * Move or size the window despite it being fixed.
+ *
+ * `resizable: false` makes macOS reject height changes from setBounds, which
+ * would silently defeat both the snap and the fill-the-display behaviour. The
+ * flag is lifted for the call and put straight back, so the user still cannot
+ * drag an edge.
+ */
+function place(bounds: Electron.Rectangle): void {
+  if (!window || window.isDestroyed()) return;
+  window.setResizable(true);
+  window.setBounds(bounds);
+  window.setResizable(false);
 }
 
 /** Bring the palette back, wherever it went. */
@@ -272,7 +300,7 @@ handle('window:snap', async (edge: 'left' | 'right') => {
   const { workArea } = screen.getPrimaryDisplay();
   const [width] = window.getSize();
   const w = width ?? store.width;
-  window.setBounds({
+  place({
     x: edge === 'left' ? workArea.x : workArea.x + workArea.width - w,
     y: workArea.y,
     width: w,

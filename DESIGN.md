@@ -62,11 +62,18 @@ saturated on dark and legible on light.
 
 ## Window controls (2026-08-31)
 
-**No maximise.** `maximizable: false` and `fullscreenable: false`, plus handlers
-that undo `maximize` and `enter-full-screen`. macOS honours the system-wide
-"double-click title bar to zoom" preference regardless of the button state, so
-refusing the flags is not enough — the events have to be refused too. A palette
-that covers Live defeats the reason it is narrow and full-height.
+**Fixed size.** `resizable: false`, `maximizable: false` and
+`fullscreenable: false`, plus handlers that undo `maximize` and
+`enter-full-screen`. macOS honours the system-wide "double-click title bar to
+zoom" preference regardless of the button state, so refusing the flags is not
+enough — the events have to be refused too. A palette that covers Live defeats
+the reason it is narrow and full-height, and dragging an edge only ever makes it
+overlap the set it is meant to sit beside.
+
+`resizable: false` also makes macOS reject height changes from `setBounds`,
+which would silently break both the snap and the fill-the-display behaviour, so
+`place()` lifts the flag for the call and puts it straight back. Moving the
+window between displays re-fills the new one's working height.
 
 **Show/hide made explicit.** The float control was a bare `⇧` with a tooltip,
 which said nothing at a glance about whether the palette was currently above
