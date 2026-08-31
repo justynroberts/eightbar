@@ -18,6 +18,11 @@ BEATS_PER_BAR = 4.0
 ROLES = (
     "kick", "drums", "bass", "sub", "chords", "lead", "hook",
     "pad", "arp", "fx", "riser", "impact", "vocal", "perc",
+    # Acoustic and orchestral roles. Without these, "write a string quartet"
+    # or "a piano and cello cue" had to be forced through "chords" and "lead",
+    # which chose synths and voiced them like synths.
+    "strings", "brass", "woodwind", "piano", "guitar", "choir", "mallet",
+    "harp", "organ",
 )
 
 # Roles that exist to be filled in later by hand rather than generated.
@@ -67,6 +72,38 @@ def role_vocabulary() -> list[str]:
 # When a template asks for a role no track provides, fall back to the nearest
 # musical neighbour. Without this, a set with a "Bass" track but no "Sub" goes
 # silent through every section that only listed "sub".
+# Instrument names people actually use, mapped onto roles. Without these,
+# "cello" and "trumpet" matched nothing and the part fell back to a synth.
+ROLE_ALIASES.update({
+    "violin": "strings", "viola": "strings", "cello": "strings",
+    "double_bass": "strings", "contrabass": "strings", "orchestra": "strings",
+    "orchestral": "strings", "ensemble": "strings", "section": "strings",
+    "arco": "strings", "pizzicato": "strings", "pizz": "strings",
+    "quartet": "strings", "violins": "strings", "cellos": "strings",
+    "trumpet": "brass", "trombone": "brass", "horn": "brass",
+    "french_horn": "brass", "tuba": "brass", "horns": "brass",
+    "fanfare": "brass",
+    "flute": "woodwind", "clarinet": "woodwind", "oboe": "woodwind",
+    "bassoon": "woodwind", "sax": "woodwind", "saxophone": "woodwind",
+    "winds": "woodwind", "wind": "woodwind", "reed": "woodwind",
+    "grand_piano": "piano", "grand": "piano", "upright": "piano",
+    "rhodes": "piano", "wurlitzer": "piano", "wurli": "piano",
+    "clav": "piano", "clavinet": "piano", "epiano": "piano",
+    "electric_piano": "piano", "keyboard": "piano",
+    "acoustic_guitar": "guitar", "electric_guitar": "guitar",
+    "nylon": "guitar", "banjo": "guitar", "mandolin": "guitar",
+    "ukulele": "guitar", "strum": "guitar",
+    "choral": "choir", "chorus_voices": "choir", "aah": "choir",
+    "ooh": "choir", "vocal_pad": "choir",
+    "marimba": "mallet", "vibraphone": "mallet", "vibes": "mallet",
+    "xylophone": "mallet", "glockenspiel": "mallet", "glock": "mallet",
+    "bells": "mallet", "bell": "mallet", "celesta": "mallet",
+    "kalimba": "mallet", "tubular": "mallet",
+    "hammond": "organ", "church_organ": "organ", "b3": "organ",
+    "harpsichord": "piano", "timpani": "perc", "taiko": "perc",
+    "orchestral_perc": "perc", "cymbal": "perc", "gong": "impact",
+})
+
 ROLE_FALLBACKS: dict[str, tuple[str, ...]] = {
     "sub": ("bass",),
     "bass": ("sub",),
@@ -78,6 +115,27 @@ ROLE_FALLBACKS: dict[str, tuple[str, ...]] = {
     "perc": ("drums",),
     "kick": ("drums",),
 }
+
+# Acoustic roles substitute towards each other before falling back to a synth,
+# so a cinematic cue missing brass doubles the strings rather than reaching for
+# a supersaw.
+ROLE_FALLBACKS.update({
+    "strings": ("pad", "chords", "choir"),
+    "brass": ("strings", "lead", "chords"),
+    "woodwind": ("strings", "lead", "pad"),
+    "piano": ("chords", "keys", "pad"),
+    "guitar": ("piano", "chords", "arp"),
+    "choir": ("pad", "strings", "vocal"),
+    "mallet": ("arp", "hook", "piano"),
+    "harp": ("arp", "mallet", "piano"),
+    "organ": ("chords", "pad", "piano"),
+    "drums": ("perc", "kick"),
+})
+
+# Deliberately absent: vocal and fx are placeholders the user fills in by hand,
+# and riser and impact are placed by position rather than looped. Substituting
+# for any of them changes what the arrangement *means* -- an fx slot silently
+# becoming a riser put a third riser in a two-build track.
 
 
 @dataclass
@@ -129,6 +187,79 @@ class Section:
 # A "build" section always ends by handing over to the drop that follows it, so
 # risers belong there and impacts belong on the drop's first bar.
 TEMPLATES: dict[str, list[tuple[str, float, float, tuple[str, ...]]]] = {
+    # --- forms that are not EDM ------------------------------------------
+    # Cinematic writing builds once across the whole piece rather than
+    # resetting every drop, so energy climbs almost monotonically and the
+    # sections are named for their dramatic function.
+    "cinematic": [
+        ("statement",   2, 0.20, ("piano", "strings", "pad")),
+        ("build",       2, 0.35, ("piano", "strings", "pad", "perc")),
+        ("development", 3, 0.55, ("strings", "piano", "perc", "choir", "harp")),
+        ("lift",        2, 0.75, ("strings", "brass", "perc", "choir", "impact")),
+        ("climax",      3, 1.00, ("strings", "brass", "perc", "choir", "drums",
+                                  "impact", "sub")),
+        ("resolution",  3, 0.30, ("strings", "piano", "pad")),
+    ],
+    "trailer": [
+        ("hook",        1, 0.30, ("piano", "strings", "impact")),
+        ("build",       2, 0.50, ("strings", "perc", "riser", "impact")),
+        ("drop_out",    1, 0.15, ("pad", "choir")),
+        ("rise",        2, 0.80, ("strings", "brass", "perc", "riser")),
+        ("hit",         2, 1.00, ("brass", "strings", "perc", "drums", "impact",
+                                  "choir", "sub")),
+        ("aftermath",   2, 0.25, ("pad", "strings", "piano")),
+    ],
+    # Sonata-ish: a theme, a departure that develops it, a return.
+    "classical": [
+        ("exposition",    4, 0.45, ("piano", "strings")),
+        ("transition",    2, 0.55, ("piano", "strings", "woodwind")),
+        ("development",   4, 0.70, ("piano", "strings", "woodwind", "brass")),
+        ("recapitulation",4, 0.60, ("piano", "strings", "woodwind")),
+        ("coda",          2, 0.40, ("piano", "strings")),
+    ],
+    "chamber": [
+        ("theme",      3, 0.40, ("strings", "piano")),
+        ("variation",  3, 0.55, ("strings", "piano", "woodwind")),
+        ("variation",  3, 0.70, ("strings", "woodwind", "harp")),
+        ("return",     3, 0.45, ("strings", "piano")),
+    ],
+    # Head, solos over the same changes, head again.
+    "jazz": [
+        ("head",    2, 0.55, ("piano", "bass", "drums")),
+        ("solo",    3, 0.70, ("piano", "bass", "drums", "brass")),
+        ("solo",    3, 0.80, ("piano", "bass", "drums", "guitar")),
+        ("trading", 2, 0.85, ("piano", "bass", "drums")),
+        ("head",    2, 0.60, ("piano", "bass", "drums", "brass")),
+    ],
+    # Verse/chorus, the form most music outside dance music actually uses.
+    "song": [
+        ("intro",   1, 0.30, ("piano", "guitar", "pad")),
+        ("verse",   2, 0.45, ("drums", "bass", "piano", "guitar", "vocal")),
+        ("chorus",  2, 0.85, ("drums", "bass", "piano", "guitar", "vocal",
+                              "strings")),
+        ("verse",   2, 0.50, ("drums", "bass", "piano", "guitar", "vocal")),
+        ("chorus",  2, 0.90, ("drums", "bass", "piano", "guitar", "vocal",
+                              "strings")),
+        ("bridge",  2, 0.40, ("piano", "pad", "vocal", "strings")),
+        ("chorus",  3, 1.00, ("drums", "bass", "piano", "guitar", "vocal",
+                              "strings", "choir")),
+        ("outro",   1, 0.25, ("piano", "pad")),
+    ],
+    "lo_fi": [
+        ("intro",  2, 0.25, ("piano", "pad")),
+        ("groove", 4, 0.50, ("drums", "bass", "piano", "perc")),
+        ("break",  2, 0.35, ("piano", "pad", "guitar")),
+        ("groove", 4, 0.55, ("drums", "bass", "piano", "guitar", "perc")),
+        ("outro",  2, 0.25, ("piano", "pad")),
+    ],
+    "score": [
+        ("cue",        3, 0.30, ("strings", "piano")),
+        ("tension",    3, 0.50, ("strings", "perc", "pad")),
+        ("release",    3, 0.65, ("strings", "woodwind", "harp", "piano")),
+        ("tension",    3, 0.75, ("strings", "brass", "perc")),
+        ("resolution", 4, 0.35, ("strings", "piano", "pad")),
+    ],
+
     "house": [
         ("intro",      2, 0.25, ("kick", "drums")),
         ("groove",     2, 0.45, ("kick", "drums", "bass", "perc")),

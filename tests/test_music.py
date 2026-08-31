@@ -242,3 +242,67 @@ def test_band_trims_are_shared_and_capped():
 
     # A band nobody owns produces no trim rather than a guess.
     assert mixing.trims_for_bands({"air": 0.5}, {0: "kick"}) == {}
+
+
+def test_non_edm_forms_exist_and_are_shaped_differently():
+    """Cinematic and classical are not drops with different sounds.
+
+    Everything used to be intro/build/drop, so "write a cinematic cue" came out
+    as house with strings on it. A cinematic piece climbs once across the whole
+    form; a dance track resets at every breakdown.
+    """
+    from ableton_ai import arrangement
+
+    for name in ("cinematic", "classical", "chamber", "jazz", "song", "score"):
+        assert name in arrangement.TEMPLATES, name
+        sections = arrangement.TEMPLATES[name]
+        kinds = {s[0] for s in sections}
+        assert "drop" not in kinds, f"{name} should not be built out of drops"
+
+    # Cinematic energy rises to a single peak rather than resetting.
+    energies = [s[2] for s in arrangement.TEMPLATES["cinematic"]]
+    peak = energies.index(max(energies))
+    assert energies[:peak] == sorted(energies[:peak]), energies
+    assert peak == len(energies) - 2, "the climax should be the penultimate section"
+
+
+def test_acoustic_roles_resolve_from_instrument_names():
+    """"cello" matched nothing and quietly became a synth."""
+    from ableton_ai import arrangement
+
+    for word, role in (("cello", "strings"), ("violin", "strings"),
+                       ("trumpet", "brass"), ("flute", "woodwind"),
+                       ("rhodes", "piano"), ("marimba", "mallet"),
+                       ("banjo", "guitar"), ("harpsichord", "piano")):
+        assert arrangement.normalise_role(word) == role, word
+
+
+def test_acoustic_roles_substitute_towards_each_other():
+    """A cue missing brass should double the strings, not reach for a supersaw."""
+    from ableton_ai import arrangement
+
+    assert arrangement.ROLE_FALLBACKS["brass"][0] == "strings"
+    assert arrangement.ROLE_FALLBACKS["woodwind"][0] == "strings"
+    assert arrangement.ROLE_FALLBACKS["harp"][0] == "arp"
+
+    # Placeholders and positioned roles must never substitute: an fx slot
+    # silently becoming a riser put a third riser in a two-build track.
+    for role in ("vocal", "fx", "riser", "impact"):
+        assert role not in arrangement.ROLE_FALLBACKS, role
+
+
+def test_classical_and_cinematic_harmony_is_available():
+    from ableton_ai import theory
+
+    for name in ("pachelbel", "lament", "plagal", "neapolitan", "circle_of_fifths",
+                 "cinematic_rise", "rhythm_changes", "doo_wop"):
+        assert name in theory.PROGRESSIONS, name
+
+    for name in ("whole_tone", "octatonic", "hungarian_minor", "phrygian_dominant",
+                 "altered", "hirajoshi"):
+        assert name in theory.SCALES, name
+
+    built = theory.build_progression(
+        "C", "major", list(theory.PROGRESSIONS["pachelbel"]), octave=3
+    )
+    assert [c.name for c in built][:4] == ["C", "G", "Am", "Em"]

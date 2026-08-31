@@ -253,3 +253,42 @@ When adding a vocabulary, add its `ALIASES` table alongside it and expose a
 `generators`, `voicings` and `arrangement` do. If a request keeps failing
 because the concept is missing rather than the word -- `offbeat_hats` described
 an instrument, not a kit -- add the concept.
+
+## Sound selection comes from the browser, not a table
+
+`catalogue.py` scans the Live browser once (~20s, ~2,100 entries here) and
+caches it, then scores every installed preset against what a role is made of and
+what a genre sounds like. `scan_sounds` builds it; `find_sounds` searches it;
+`pick_sound` and `ensure_instruments` use it before falling back to the old
+table.
+
+The point is that it discriminates. `piano` returns *Grand Piano* for classical,
+*Wurli* for lo-fi and *Ac Piano Upright* for jazz, from the same library. The
+previous hardcoded map said `chords` meant `Instruments/Wavetable` regardless,
+which is a guess about one machine and always wrong for anything acoustic.
+
+Category outranks keyword: a preset in `Sounds/Bass` beats "Bass Drum Pad" in
+`Sounds/Pad`. Drum kits are pushed hard towards drum roles and away from
+everything else. A machine with no catalogue falls back to stock devices, which
+always exist.
+
+## This is not an EDM-only tool
+
+`arrangement.TEMPLATES` carries cinematic, trailer, classical, chamber, jazz,
+song, lo_fi and score alongside the dance forms, and they are shaped
+differently -- a cinematic cue climbs once to a late climax rather than
+resetting at every breakdown, and none of them contain a "drop".
+
+`ROLES` includes strings, brass, woodwind, piano, guitar, choir, mallet, harp
+and organ, with aliases so "cello", "trumpet", "rhodes" and "marimba" resolve.
+Acoustic roles substitute towards each other (`brass` -> `strings`), never
+towards a synth.
+
+`vocal`, `fx`, `riser` and `impact` deliberately have **no** fallbacks: the
+first two are placeholders the user fills in, and the last two are positioned
+rather than looped. An `fx` slot silently becoming a riser put a third riser in
+a two-build track.
+
+`theory.PROGRESSIONS` has 63 entries -- pachelbel, lament, plagal, neapolitan,
+circle_of_fifths, rhythm_changes -- and `SCALES` has 27, including whole_tone,
+octatonic, phrygian_dominant and altered.

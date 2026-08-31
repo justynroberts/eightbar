@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import (
-    arrangement, basslines, corpus, generators, groove, harmony, leads,
-    melody, mixing, presets, theory, variations, voicings,
+    arrangement, basslines, catalogue, corpus, generators, groove, harmony,
+    leads, melody, mixing, presets, theory, variations, voicings,
 )
 
 try:  # numpy and friends are optional; everything else works without them
@@ -39,6 +39,10 @@ ROLE_COLOURS = {
     "kick": 1, "drums": 2, "perc": 3, "bass": 5, "sub": 6, "chords": 9,
     "arp": 11, "lead": 13, "hook": 14, "pad": 17, "riser": 19,
     "impact": 20, "fx": 21, "vocal": 25,
+    # Acoustic and orchestral roles. Warm ambers and greens, kept clear of the
+    # synth roles above so an orchestral set reads at a glance.
+    "strings": 8, "brass": 11, "woodwind": 17, "piano": 26, "guitar": 20,
+    "choir": 14, "mallet": 33, "harp": 41, "organ": 47,
 }
 
 # Roles placed once at a section's start rather than looped across it.
@@ -2856,6 +2860,90 @@ class Toolbox:
             "description": recipe.description,
         }
 
+    # ------------------------------------------------- what is actually installed
+
+    def _browser_item(self, path: str) -> dict | None:
+        """The browser entry at a slash-separated path, for its loadable URI."""
+        parent, _, leaf = path.rpartition("/")
+        items = self.bridge.call("browse", path=parent, limit=5000)["items"]
+        return next(
+            (i for i in items if i["name"] == leaf and i.get("is_loadable")), None
+        )
+
+    def _catalogue(self) -> catalogue.Catalogue:
+        """The scanned browser, loaded once per Toolbox."""
+        if getattr(self, "_sound_catalogue", None) is None:
+            self._sound_catalogue = catalogue.Catalogue.load()
+        return self._sound_catalogue
+
+    def tool_scan_sounds(self, force: bool = False) -> dict:
+        """Walk the Live browser and record everything loadable.
+
+        Run this once. Instrument choice was a hardcoded table -- "bass means
+        Operator" -- which ignores the couple of thousand presets, kits and
+        plugins actually installed, and quietly gives the wrong answer for
+        anything that is not EDM. Afterwards `find_sounds` and every tool that
+        loads an instrument search what this machine really has.
+
+        Takes about twenty seconds. The result is cached, so `force` is only
+        needed after installing a pack.
+        """
+        found = self._catalogue()
+        if found.entries and not force:
+            summary = found.summary()
+            summary["cached"] = True
+            summary["summary"] = (
+                f"{summary['total']} sounds already catalogued; "
+                "pass force=true to rescan after installing a pack"
+            )
+            return summary
+
+        found.scan(self.bridge)
+        summary = found.summary()
+        summary["cached"] = False
+        summary["summary"] = (
+            f"catalogued {summary['total']} loadable sounds: "
+            + ", ".join(f"{n} {r}" for r, n in summary["by_root"].items())
+        )
+        return summary
+
+    def tool_find_sounds(
+        self, role: str, genre: str | None = None, limit: int = 8,
+        prefer: str | None = None,
+    ) -> dict:
+        """Search the catalogued browser for presets that suit a role.
+
+        Scores every installed preset against what the role is made of and what
+        the genre sounds like, so "pad" for cinematic and "pad" for techno give
+        different answers. `prefer` narrows to a path fragment -- "Serum",
+        "Sounds/Strings", a pack name.
+
+        Use it to see the options before committing, or pass the winner to
+        `load_sound`.
+        """
+        found = self._catalogue()
+        if not found.entries:
+            raise ToolError(
+                "nothing catalogued yet -- run scan_sounds first (about 20s)"
+            )
+        role = arrangement.normalise_role(role)
+        hits = found.find(role, genre, limit=limit, prefer=prefer)
+        return {
+            "role": role,
+            "genre": genre,
+            "matches": [
+                {"name": e.display, "path": e.path, "category": e.category,
+                 "source": e.root,
+                 "score": round(found.score(e, role, genre), 1)}
+                for e in hits
+            ],
+            "summary": (
+                f"{len(hits)} match(es) for {role}"
+                + (f" in {genre}" if genre else "")
+                + (": " + ", ".join(e.display for e in hits[:5]) if hits else "")
+            ),
+        }
+
     def tool_pick_sound(
         self,
         track_index: int,
@@ -2873,12 +2961,38 @@ class Toolbox:
         supersaw, bright, stab, soft for leads; reese, sub, analog, deep, acid
         for bass. Left out, the genre decides.
         """
-        role = (role or "").lower()
+        role = arrangement.normalise_role(role or "")
+
+        # The catalogue knows what is actually installed, including roles the
+        # hardcoded table never had -- strings, choir, mallets, harp, brass --
+        # so it gets first refusal. The old path stays as the fallback for a
+        # machine that has not scanned yet.
+        found = self._catalogue()
+        if found.entries:
+            wanted_character = f"{character} {genre}".strip() if character else genre
+            for entry in found.find(role, wanted_character or genre, limit=6):
+                try:
+                    match = self._browser_item(entry.path)
+                except (AbletonError, AbletonNotRunning, ToolError):
+                    continue
+                if not match:
+                    continue
+                self.bridge.call(
+                    "load_device", track_index=track_index, uri=match["uri"]
+                )
+                return {
+                    "track_index": track_index, "role": role,
+                    "preset": entry.display, "path": entry.path,
+                    "source": "catalogue",
+                    "summary": f"loaded {entry.display!r} for {role}",
+                }
+
         categories = presets.PRESET_CATEGORIES.get(role)
         if not categories:
             raise ToolError(
                 f"no preset category for role {role!r}; one of: "
-                f"{', '.join(sorted(presets.PRESET_CATEGORIES))}"
+                f"{', '.join(sorted(presets.PRESET_CATEGORIES))}. "
+                "Run scan_sounds to search everything installed instead."
             )
         wanted = presets.picks_for(role, character, genre)
 

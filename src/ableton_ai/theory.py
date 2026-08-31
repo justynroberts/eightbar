@@ -36,6 +36,19 @@ SCALES: dict[str, tuple[int, ...]] = {
     "pentatonic_minor": (0, 3, 5, 7, 10),
     "blues": (0, 3, 5, 6, 7, 10),
     "chromatic": tuple(range(12)),
+
+    # Idioms outside pop and dance harmony.
+    "whole_tone": (0, 2, 4, 6, 8, 10),
+    "octatonic": (0, 2, 3, 5, 6, 8, 9, 11),          # diminished
+    "hungarian_minor": (0, 2, 3, 6, 7, 8, 11),
+    "double_harmonic": (0, 1, 4, 5, 7, 8, 11),       # byzantine
+    "phrygian_dominant": (0, 1, 4, 5, 7, 8, 10),     # spanish / klezmer
+    "lydian_dominant": (0, 2, 4, 6, 7, 9, 10),
+    "altered": (0, 1, 3, 4, 6, 8, 10),               # jazz, over a dominant
+    "bebop_dominant": (0, 2, 4, 5, 7, 9, 10, 11),
+    "japanese": (0, 1, 5, 7, 8),                     # in scale
+    "hirajoshi": (0, 2, 3, 7, 8),
+    "egyptian": (0, 2, 5, 7, 10),
 }
 
 # Chord quality -> semitone offsets from the chord root.
@@ -134,6 +147,40 @@ PROGRESSIONS: dict[str, tuple[int, ...]] = {
     "twelve_bar_blues": (1, 1, 1, 1, 4, 4, 1, 1, 5, 4, 1, 1),
     "eight_bar_minor":  (1, 6, 3, 7, 1, 6, 4, 5),
     "two_five_one":     (2, 5, 1, 1),
+
+    # --- outside dance music --------------------------------------------
+    # Classical and cinematic writing leans on cadences and stepwise bass,
+    # not on four bars that loop. These are the moves that do the work.
+    "pachelbel": (1, 5, 6, 3, 4, 1, 4, 5),   # the canon, still undefeated
+    "romanesca": (3, 7, 1, 5, 6, 3, 4, 5),   # renaissance ground bass
+    "lament": (1, 7, 6, 5),                  # descending tetrachord, minor
+    "folia": (1, 5, 1, 7, 3, 7, 1, 5),
+    "passamezzo": (1, 7, 1, 5, 1, 7, 1, 5),
+    "plagal": (1, 4, 1),                     # the amen cadence
+    "authentic": (1, 4, 5, 1),
+    "deceptive": (1, 4, 5, 6),               # the resolution that is withheld
+    "circle_of_fifths": (6, 2, 5, 1, 4, 7, 3, 6),
+    "neapolitan": (1, 4, 2, 5, 1),
+    "picardy": (1, 6, 4, 5),                 # minor throughout, major at the end
+    "hymn": (1, 4, 1, 5, 1, 4, 5, 1),
+    "baroque_sequence": (1, 4, 7, 3, 6, 2, 5, 1),
+    # Cinematic: suspended, slow-moving, resolving late.
+    "cinematic_rise": (1, 6, 4, 5, 1, 6, 4, 7),
+    "epic_build": (1, 1, 6, 6, 4, 4, 5, 5),
+    "heroic": (1, 5, 6, 4),
+    "tension": (1, 2, 1, 7),
+    "unresolved": (1, 4, 1, 2),
+    "modal_drone": (1, 7, 1, 4),
+    "aeolian_fall": (1, 7, 6, 7),
+    "trailer_stabs": (1, 1, 7, 7, 6, 6, 5, 5),
+    # Jazz and song forms.
+    "rhythm_changes": (1, 6, 2, 5),
+    "coltrane_ish": (1, 3, 6, 2, 5),
+    "minor_two_five": (2, 5, 1, 1),
+    "blues_jazz": (1, 4, 1, 5, 4, 1),
+    "doo_wop": (1, 6, 4, 5),
+    "canon_pop": (1, 5, 6, 4),
+    "folk": (1, 4, 5, 4),
 }
 
 # What each progression is for, so the model can choose on musical grounds
