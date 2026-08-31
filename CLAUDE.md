@@ -398,3 +398,22 @@ Three behaviours that separate a composer from a generator, all measured:
   `suggest_progression(style=...)`, the learned-motif pick in `compose_theme`,
   and `corpus_profile` all draw from one cohort. A loose word ("club",
   "rolling") matches a cluster; nonsense refuses with the list.
+
+## hooks.py: what hit melodies do, encoded
+
+The motif engine develops; popular melody *repeats literally* — the same
+pitches over moving chords, the emergent colour doing the work. Re-anchoring a
+"repeat" to each chord (what motif development does) is precisely what made
+generated hooks forgettable. `HOOK_PATTERNS` holds ten skeletons decades of
+hits share (falling_fifth, two_note_engine, penta_loop, leap_and_fill…), tagged
+by style; `render_hook` states one A-A-A-A′ with anticipation (later downbeats
+pushed an eighth early) and gap-fill (a leap turns back stepwise — Meyer's
+rule), bending only the final tail to cadence. `create_hook_clip` defaults to
+this path; `pattern="motif"` restores the developed-motif behaviour, and
+`build_track` uses the catalog for the Hook while the lead/counter keep motif
+DNA — memorability beats relatedness on exactly that one part.
+
+`composing.MODULATIONS` names the moves popular music actually uses (lift,
+semitone_lift, relative, parallel, dominant, subdominant); `plan_harmony`
+takes `breakdown=` and `climax=` so a breakdown can go to the relative major
+and the last drop can take any of them.

@@ -12,7 +12,7 @@ import typing
 from typing import Any, get_args, get_origin
 
 from . import (
-    arrangement, basslines, generators, groove, harmony, leads, melody,
+    arrangement, basslines, generators, groove, harmony, hooks, leads, melody,
     mixing, presets, theory, variations, voicings,
 )
 from .tools import Toolbox
@@ -127,6 +127,12 @@ ENUMS: dict[str, list[str]] = {
     "template": _vocab(arrangement.TEMPLATES, arrangement.ALIASES),
     "contour": ["arch", "fall", "random", "rise", "valley"],
     "arc": ["arch", "cadence", "calm", "drive", "rise"],
+    "breakdown": ["dominant", "lift", "parallel", "reharmonise", "relative",
+                  "semitone_lift", "subdominant"],
+    "climax": ["dominant", "lift", "parallel", "relative", "semitone_lift",
+               "subdominant"],
+    "hook_style": sorted({s for v in hooks.HOOK_PATTERNS.values()
+                          for s in v["styles"]}),
     "kind": ["audio", "midi"],
     "mode": ["add", "replace"],
     "kick_mode": ["avoid", "ignore", "lock", "shorten"],
@@ -196,6 +202,9 @@ ITEM_SCHEMAS: dict[str, dict[str, Any]] = {
 TOOL_ENUMS: dict[str, dict[str, list[str]]] = {
     "create_varied_chords": {"rhythm": _vocab(generators.CHORD_COMPS)},
     "create_chord_clip": {"rhythm": _vocab(generators.RHYTHM_PATTERNS)},
+    "create_hook_clip": {
+        "pattern": sorted(hooks.HOOK_PATTERNS) + ["motif"],
+    },
     "create_styled_bass": {
         "style": _vocab(basslines.STYLES, basslines.ALIASES, ["learned"])
     },

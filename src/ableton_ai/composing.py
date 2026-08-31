@@ -175,6 +175,51 @@ def design_progression(
     return degrees
 
 
+# -------------------------------------------------------------- modulation
+
+# Where a piece can go from where it is. Each entry: semitone shift for the
+# new tonic, whether the mode flips, and what the move is for. These are the
+# modulations popular music actually uses, not the theoretical inventory.
+MODULATIONS: dict[str, dict[str, Any]] = {
+    "lift": {"shift": 2, "flip_mode": False,
+             "why": "the truck-driver gear change: same music, more of it"},
+    "semitone_lift": {"shift": 1, "flip_mode": False,
+                      "why": "the urgent version of the lift"},
+    "relative": {"shift": +3, "flip_mode": True,
+                 "why": "minor to its relative major: same notes, new home -- "
+                        "the cheapest brightness there is"},
+    "parallel": {"shift": 0, "flip_mode": True,
+                 "why": "minor to parallel major (or back): same root, "
+                        "different weather"},
+    "dominant": {"shift": 7, "flip_mode": False,
+                 "why": "up a fifth: brighter, further from home"},
+    "subdominant": {"shift": 5, "flip_mode": False,
+                    "why": "down a fifth: warmer, settling"},
+}
+
+
+def modulate(key: str, scale: str, how: str) -> tuple[str, str]:
+    """The new key and scale after a named modulation."""
+    move = MODULATIONS.get(str(how).lower())
+    if move is None:
+        raise ValueError(
+            f"unknown modulation {how!r}; one of: {', '.join(sorted(MODULATIONS))}"
+        )
+    scale_key = theory.normalise_scale(scale)
+    minor_family = _degree_table(scale_key) is DEGREE_TENSION_MINOR
+    shift = move["shift"]
+    # "relative" is +3 from minor but -3 from major; the others are absolute.
+    if how == "relative" and not minor_family:
+        shift = -3
+    new_key = theory.NOTE_NAMES[
+        (theory.note_to_pitch_class(key) + shift) % 12
+    ]
+    new_scale = scale_key
+    if move["flip_mode"]:
+        new_scale = "major" if minor_family else "minor"
+    return new_key, new_scale
+
+
 # ----------------------------------------------------------- section harmony
 
 # What each kind of section does to the track's main progression. This is the
@@ -219,6 +264,8 @@ def harmonic_plan(
     degrees: Sequence[int],
     key: str = "A",
     scale: str = "minor",
+    breakdown: str = "reharmonise",
+    climax: str = "lift",
 ) -> list[dict]:
     """Give every section of an arrangement its own harmonic treatment.
 
@@ -254,20 +301,27 @@ def harmonic_plan(
             # Half the harmonic rhythm: every other chord, held twice as long.
             plan_degrees = main[::2] or main
         elif mode == "reharmonise":
-            plan_degrees = _reharmonise(main, scale)
+            if breakdown in MODULATIONS:
+                # A modulated breakdown: the same progression in a new key --
+                # relative major is the classic "the clouds part" move.
+                plan_key, plan_scale = modulate(key, scale, breakdown)
+                mode = f"modulate_{breakdown}"
+                treatment = {"mode": mode, "why": MODULATIONS[breakdown]["why"]}
+            else:
+                plan_degrees = _reharmonise(main, scale)
         elif mode == "main":
             drops_seen += 1
             # The last drop of the track lifts, if there are at least two.
             if total_drops >= 2 and drops_seen == total_drops:
                 mode = "lift"
         if mode == "lift":
-            plan_key = theory.NOTE_NAMES[
-                (theory.note_to_pitch_class(key) + 2) % 12
-            ]
+            move = climax if climax in MODULATIONS else "lift"
+            plan_key, plan_scale = modulate(key, scale, move)
             treatment = {
-                "mode": "lift",
-                "why": "the same music a tone higher reads as bigger, not different",
+                "mode": move,
+                "why": MODULATIONS[move]["why"],
             }
+            mode = move
 
         out.append({
             **{k: section[k] for k in ("name", "start_bar", "bars") if k in section},

@@ -819,3 +819,96 @@ def test_corpus_styles_cluster_and_filter(tmp_path):
         raise AssertionError("unknown style should refuse")
     except ValueError as exc:
         assert "polka" in str(exc)
+
+
+# --------------------------------------------------- what hit melodies do
+
+def test_hooks_repeat_literally_over_the_moving_harmony():
+    """The same pitches every statement -- re-anchoring per chord is what
+    made generated hooks forgettable."""
+    from ableton_ai import hooks, theory
+
+    chords = theory.build_progression("A", "minor", [1, 6, 4, 5], octave=3)
+    for pattern in hooks.HOOK_PATTERNS:
+        notes = sorted(hooks.render_hook("A", "minor", chords, bars=8,
+                                         pattern=pattern, seed=2),
+                       key=lambda n: n["start"])
+
+        def statement(k):
+            lo, hi = k * 4 - 0.6, (k + 1) * 4 - 0.6
+            return [n["pitch"] for n in notes if lo <= n["start"] < hi]
+
+        assert statement(2) == statement(3), pattern
+        # Singable: the whole line inside a tenth.
+        span = max(n["pitch"] for n in notes) - min(n["pitch"] for n in notes)
+        assert span <= 16, f"{pattern} spans {span} semitones"
+        # The cadence bend: the final statement's last note is a tone of
+        # the closing chord. (It may equal the repeated statement -- a hook
+        # already ending on a chord tone needs no bend, and gets none.)
+        closing = {p % 12 for p in chords[-1].pitches}
+        last_note = max(notes, key=lambda n: n["start"])
+        assert last_note["pitch"] % 12 in closing, pattern
+
+
+def test_hooks_anticipate_the_downbeat():
+    """Pop phrasing: later downbeats are hit an eighth early."""
+    from ableton_ai import hooks, theory
+
+    chords = theory.build_progression("A", "minor", [1, 6, 4, 5], octave=3)
+    notes = hooks.render_hook("A", "minor", chords, bars=8,
+                              pattern="falling_fifth", seed=1)
+    pushed = [n for n in notes if n["start"] % 4 == 3.5]
+    on_grid_downbeats = [n for n in notes if n["start"] % 4 == 0 and n["start"] > 0]
+    assert pushed, "no anticipations at all"
+    assert not on_grid_downbeats, "later downbeats should be pushed early"
+
+
+def test_gap_fill_turns_back_after_a_leap():
+    from ableton_ai import hooks
+
+    # An octave leap followed by another rise: the third note must turn back.
+    filled = hooks.gap_fill([60, 72, 76], "C", "major")
+    assert filled[2] < 72, filled
+    # A leap already filled stepwise is left alone.
+    assert hooks.gap_fill([60, 72, 71], "C", "major") == [60, 72, 71]
+
+
+def test_hook_styles_pick_suitable_patterns():
+    from ableton_ai import hooks
+
+    for style, expect_any in (("anthem", {"falling_fifth", "leap_and_fill"}),
+                              ("melodic_techno", {"drone_fifth",
+                                                  "descending_sigh",
+                                                  "climb_and_fall"})):
+        names = set(hooks.catalog(style))
+        assert names & expect_any, (style, names)
+    # Nonsense falls back to everything rather than nothing.
+    assert len(hooks.catalog("polka")) == len(hooks.HOOK_PATTERNS)
+
+
+def test_breakdowns_and_climaxes_can_modulate():
+    """"Modulate more": the breakdown can go to the relative major, and the
+    final drop can take any named move, not only the tone-up lift."""
+    from ableton_ai import composing
+
+    sections = [{"name": n} for n in
+                ("intro", "build", "drop", "breakdown", "build", "drop")]
+    plan = composing.harmonic_plan(sections, [1, 6, 3, 7], key="D",
+                                   scale="minor", breakdown="relative",
+                                   climax="semitone_lift")
+    by = {}
+    for entry in plan:
+        by.setdefault(entry["name"], []).append(entry)
+
+    breakdown = by["breakdown"][0]
+    assert breakdown["key"] == "F" and breakdown["scale"] == "major", breakdown
+    assert "relative" in breakdown["treatment"]
+
+    final = by["drop"][-1]
+    assert final["key"] == "D#", final
+    assert final["treatment"] == "semitone_lift"
+
+    # And every named modulation resolves to a real key.
+    for how in composing.MODULATIONS:
+        key, scale = composing.modulate("A", "minor", how)
+        assert key in __import__("ableton_ai.theory", fromlist=["x"]).NOTE_NAMES

@@ -20,8 +20,8 @@ from typing import Any, Callable
 
 from . import (
     arrangement, basslines, catalogue, composing, corpus, critique, generators,
-    groove, harmony, leads, melody, mixing, motif, perform, presets, theory,
-    variations, voicings,
+    groove, harmony, hooks, leads, melody, mixing, motif, perform, presets,
+    theory, variations, voicings,
 )
 
 try:  # numpy and friends are optional; everything else works without them
@@ -813,8 +813,7 @@ class Toolbox:
         # remains the fallback for a set where the theme cannot land.
         theme_tracks = [
             {"track_index": made[n], "role": r}
-            for n, r in (("Lead", "lead"), ("Hook", "hook"),
-                         ("Melody", "counter"))
+            for n, r in (("Lead", "lead"), ("Melody", "counter"))
             if n in made
         ]
         themed = None
@@ -822,10 +821,13 @@ class Toolbox:
             themed = step("theme", lambda: self.tool_compose_theme(
                 key=key, scale=mode, degrees=chords, bars=8,
                 tracks=theme_tracks, seed=seed))
+        # The hook is the one part where memorability beats relatedness: it
+        # comes from the catalog of shapes decades of hits share, repeated
+        # literally over the moving harmony, chosen to suit the genre.
+        if "Hook" in made:
+            step("hook", lambda: self.tool_create_hook_clip(
+                made["Hook"], bars=8, octave=5, hook_style=key_name, **common))
         if not themed:
-            if "Hook" in made:
-                step("hook", lambda: self.tool_create_hook_clip(
-                    made["Hook"], bars=8, octave=5, **common))
             if "Lead" in made:
                 step("lead", lambda: self.tool_create_lead_clip(
                     made["Lead"], bars=8, style=recipe["lead_style"], octave=4,
@@ -1199,8 +1201,16 @@ class Toolbox:
         degrees: Any = None,
         key: str | None = None,
         scale: str | None = None,
+        breakdown: str = "reharmonise",
+        climax: str = "lift",
     ) -> dict:
         """Give each section of an arrangement its own harmonic treatment.
+
+        `breakdown` may be "reharmonise" (relative substitution under the same
+        melody) or any modulation -- "relative" sends a minor track to its
+        relative major for the breakdown, the classic clouds-parting move.
+        `climax` names the final drop's modulation: "lift" (a tone up),
+        "semitone_lift", "relative", "parallel", "dominant", "subdominant".
 
         One progression looping for six minutes is the structural tell of
         generated music. This keeps the material constant but changes the
@@ -1218,7 +1228,8 @@ class Toolbox:
             degrees = degrees if degrees is not None else found["degrees"]
         resolved = theory.parse_degrees(degrees) if not isinstance(degrees, list)             else [int(d) for d in degrees]
         plan = composing.harmonic_plan(
-            sections, resolved, key=key, scale=scale or "minor"
+            sections, resolved, key=key, scale=scale or "minor",
+            breakdown=breakdown, climax=climax,
         )
         return {
             "key": key,
@@ -2970,31 +2981,50 @@ class Toolbox:
         rhythm: str = "syncopated",
         velocity: int = 105,
         call_and_response: bool = True,
+        pattern: str | None = None,
+        hook_style: str | None = None,
         name: str | None = None,
         seed: int | None = None,
         reference_track: int | None = None,
         reference_clip: int = 0,
     ) -> dict:
-        """The top-line that carries the drop -- short, high and repetitive."""
+        """A hook the way popular music writes them: literal repeats.
+
+        The phrase keeps the SAME pitches every statement while the chords
+        move underneath -- the note that was a root becomes a seventh, and
+        that emergent colour is what makes a hook memorable. Only the final
+        statement bends its tail to cadence. Patterns are the skeletons
+        decades of hits share: falling_fifth, two_note_engine, penta_loop,
+        leap_and_fill, call_answer and friends -- pick one, give a
+        `hook_style` word ("anthem", "dark_pop", "melodic_techno") to have
+        one chosen, or leave both for a seed-stable default.
+
+        Pass pattern="motif" for the old developed-motif behaviour.
+        """
         chords, bars_per_chord = self._progression(
-            key, scale, degrees, bars, octave, "triad",
+            key, scale, degrees, bars, octave - 1, "triad",
             reference_track=reference_track, reference_clip=reference_clip,
         )
-        notes = generators.generate_hook(
-            chords,
-            bars_per_chord=bars_per_chord,
-            octave=octave,
-            rhythm=rhythm,
-            velocity=velocity,
-            call_and_response=call_and_response,
-            seed=seed,
+        if pattern == "motif":
+            notes = generators.generate_hook(
+                chords, bars_per_chord=bars_per_chord, octave=octave,
+                rhythm=rhythm, velocity=velocity,
+                call_and_response=call_and_response,
+                root=key, scale=scale, seed=seed,
+            )
+            chosen = "motif"
+        else:
+            chosen = pattern or hooks.pattern_for(hook_style, seed)
+            notes = hooks.render_hook(
+                key, scale, chords, bars=bars, pattern=chosen,
+                octave=octave, velocity=velocity, seed=seed,
+            )
+        result = self._write_clip(
+            track_index, clip_index, bars, notes,
+            name or f"Hook ({chosen})", role="hook",
         )
-        return self._write_clip(
-            track_index, clip_index, bars, notes, name or f"{key} hook", role="hook")
-
-    # ------------------------------------------------------------------
-    # Placeholders
-    # ------------------------------------------------------------------
+        result["pattern"] = chosen
+        return result
 
     def tool_create_placeholder_track(
         self,

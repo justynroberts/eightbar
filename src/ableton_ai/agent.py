@@ -113,6 +113,15 @@ so each section gets its own treatment: the intro pedals, builds end on V so \
 the drop lands as a resolution, breakdowns reharmonise, the final drop lifts \
 a tone. Then write each section's chord clip from its plan entry.
 
+For hooks, prefer the pattern catalog (`create_hook_clip` with `pattern` or \
+`hook_style`): those are the shapes decades of hits share, repeated literally \
+over the moving harmony -- which is what makes a hook memorable. The motif \
+path (`pattern="motif"`) is for when the hook must share DNA with the lead. \
+Modulate deliberately: `plan_harmony` takes `breakdown="relative"` (minor to \
+relative major -- the clouds-parting move) and `climax` from lift, \
+semitone_lift, relative, parallel, dominant, subdominant. A six-minute track \
+in one unbroken key is a wasted opportunity.
+
 ## Building a track that does not sound like a loop
 
 A drop that is a copy of the previous drop is the main way generated tracks \
