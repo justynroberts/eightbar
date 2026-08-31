@@ -54,6 +54,12 @@ const api = {
   snap: (edge: 'left' | 'right'): Promise<Result<{ edge: string }>> =>
     ipcRenderer.invoke('window:snap', edge),
 
+  hide: (): Promise<Result<{ hidden: boolean; shortcut: string }>> =>
+    ipcRenderer.invoke('window:hide'),
+
+  shortcut: (): Promise<Result<{ shortcut: string }>> =>
+    ipcRenderer.invoke('window:shortcut'),
+
   getSettings: (): Promise<Result<Record<string, unknown>>> =>
     ipcRenderer.invoke('settings:get'),
 

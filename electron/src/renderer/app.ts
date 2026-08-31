@@ -31,6 +31,8 @@ interface AbletonApi {
   info(): Promise<Result<{ version: string; remoteScriptInstalled: boolean }>>;
   pin(pinned: boolean): Promise<Result<{ pinned: boolean }>>;
   snap(edge: 'left' | 'right'): Promise<Result<{ edge: string }>>;
+  hide(): Promise<Result<{ hidden: boolean; shortcut: string }>>;
+  shortcut(): Promise<Result<{ shortcut: string }>>;
   chat(message: string): Promise<{ ok: boolean; error?: string }>;
   resetChat(): Promise<Result<{ ok: boolean }>>;
   onAgentEvent(handler: (event: Record<string, unknown>) => void): () => void;
@@ -539,14 +541,51 @@ for (const tab of tabs) {
   tab.addEventListener('click', () => showTab(tab.dataset.tab ?? 'chat'));
 }
 
+// --- a small message that fades, for state changes with no visible result
+let toastTimer: number | undefined;
+function toast(message: string, ms = 2600): void {
+  const box = $('toast');
+  $('toast-text').textContent = message;
+  box.dataset.show = 'true';
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    box.dataset.show = 'false';
+  }, ms);
+}
+
 // --- float above Live, and snap to either edge
 let pinned = true;
 const pinBtn = $<HTMLButtonElement>('pin');
+const pinLabel = $('pin-label');
 pinBtn.addEventListener('click', () => {
   pinned = !pinned;
   pinBtn.setAttribute('aria-pressed', String(pinned));
-  pinBtn.title = pinned ? 'Keep above Ableton' : 'Allow behind Ableton';
+  // The word changes with the state. A pressed-looking glyph is ambiguous
+  // about whether it describes what is happening or what clicking would do.
+  pinLabel.textContent = pinned ? 'Float' : 'Behind';
+  pinBtn.title = pinned
+    ? 'Floating above Ableton -- click to let it go behind'
+    : 'Behind Ableton -- click to float above it';
   void api.pin(pinned);
+});
+
+// --- hide the palette, and say how to get it back
+let showAgain = '\u2325\u2318E';
+void api.shortcut().then((result) => {
+  if (result.ok && result.value?.shortcut) {
+    showAgain = result.value.shortcut
+      .replace('Alt', '\u2325')
+      .replace('CommandOrControl', '\u2318')
+      .replace(/\+/g, '');
+    $('about-shortcut').textContent = showAgain;
+    $('hide').title = `Hide the palette (${showAgain} to bring it back)`;
+  }
+});
+
+$('hide').addEventListener('click', () => {
+  // Say it before hiding: once the window is gone there is nowhere to read it.
+  toast(`Hidden. Press ${showAgain} to bring it back.`);
+  window.setTimeout(() => void api.hide(), 700);
 });
 
 let edge: 'left' | 'right' = 'right';

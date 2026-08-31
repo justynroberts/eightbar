@@ -59,3 +59,25 @@ views about which, so neither is treated as secondary:
 
 Both pass WCAG AA. The role hues are defined separately per theme so they stay
 saturated on dark and legible on light.
+
+## Window controls (2026-08-31)
+
+**No maximise.** `maximizable: false` and `fullscreenable: false`, plus handlers
+that undo `maximize` and `enter-full-screen`. macOS honours the system-wide
+"double-click title bar to zoom" preference regardless of the button state, so
+refusing the flags is not enough — the events have to be refused too. A palette
+that covers Live defeats the reason it is narrow and full-height.
+
+**Show/hide made explicit.** The float control was a bare `⇧` with a tooltip,
+which said nothing at a glance about whether the palette was currently above
+Live or behind it. It is now a labelled toggle — a lit dot plus the word
+**Float** or **Behind** — where the word states the current condition rather
+than the action.
+
+Hiding is the one action that removes its own undo, so it carries three
+affordances: a `–` button, the `⌥⌘E` global shortcut (registered so it works
+from inside Live), and a toast that names the shortcut *before* the window
+disappears, since afterwards there is nowhere to read it. The About panel
+repeats it. If another app already owns the accelerator, registration fails,
+the label goes empty and stderr says so — rather than a hidden window with no
+documented way back.

@@ -186,6 +186,75 @@ button.icon {
 }
 button.icon[aria-pressed='true'] { background: var(--accent); color: var(--panel); }
 
+/* The float toggle carries a word and a lit dot rather than one arrow glyph.
+   A bare "⇧" with only a tooltip gave no way to tell, at a glance, whether the
+   palette was currently above Live or behind it. */
+button.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  flex: none;
+}
+button.toggle .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--line);
+  box-shadow: none;
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+button.toggle[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button.toggle[aria-pressed='true'] .dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Hiding is one keystroke away from being unrecoverable, so the button that
+   does it says what brings the palette back. */
+#hide { font-size: 15px; line-height: 1; padding-bottom: 2px; }
+
+.shortcut-note { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.shortcut-note kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* A hidden palette announces where it went, because the window it was in has
+   just disappeared. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translate(-50%, 12px);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  font-size: 11px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 22px rgb(0 0 0 / 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.toast[data-show='true'] { opacity: 1; transform: translate(-50%, 0); }
+
 .scroll {
   flex: 1;
   overflow-y: auto;

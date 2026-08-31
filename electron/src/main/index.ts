@@ -1,6 +1,6 @@
 /* MIT License - Copyright (c) fintonlabs.com */
 
-import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, screen, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +27,9 @@ const agent = new AgentSidecar();
 // Finder has `/` as its working directory.
 agent.appPath = app.getAppPath();
 let window: BrowserWindow | null = null;
+
+/** The shortcut that shows the palette again, empty if it could not be taken. */
+let shortcutLabel = '';
 
 /** Remembered size and position, so the dock stays where it was put. */
 const store = {
@@ -63,6 +66,12 @@ function createWindow(): void {
     minWidth: 340,
     maxWidth: 900,
     minHeight: 420,
+    // This is a palette that stands beside Live, not a window that covers it.
+    // Maximising defeats the whole point, and on macOS a double-click on the
+    // title bar zooms even with the button disabled -- so the system-wide
+    // preference has to be overridden too.
+    maximizable: false,
+    fullscreenable: false,
     alwaysOnTop: store.alwaysOnTop,
     // Live's chrome is dark grey, not black; match it behind the page so
     // there is no white flash before the theme loads.
@@ -106,6 +115,11 @@ function createWindow(): void {
   // Float above Live without stealing focus from it.
   window.setAlwaysOnTop(store.alwaysOnTop, 'floating');
 
+  // macOS honours the "double-click title bar to zoom" system setting whatever
+  // `maximizable` says, so refuse the zoom itself.
+  window.on('maximize', () => window?.unmaximize());
+  window.on('enter-full-screen', () => window?.setFullScreen(false));
+
   // Deliberately NOT setVisibleOnAllWorkspaces: on macOS that flips the app's
   // activation policy to accessory (LSUIElement), which removes the dock icon.
   // The window then has no way back once it goes behind something or is
@@ -133,19 +147,40 @@ function createWindow(): void {
   });
 }
 
+/** Bring the palette back, wherever it went. */
+function reveal(): void {
+  if (!window || window.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+
 app.whenReady().then(() => {
   createWindow();
+
+  // Once hidden, the palette has no button left to press, so getting it back
+  // has to work from inside Ableton. Alt-Cmd-E toggles it from anywhere.
+  const accelerator = 'Alt+CommandOrControl+E';
+  const registered = globalShortcut.register(accelerator, () => {
+    if (window && !window.isDestroyed() && window.isVisible()) {
+      window.hide();
+    } else {
+      reveal();
+    }
+  });
+  if (!registered) {
+    process.stderr.write(
+      `[ui] could not register ${accelerator}; another app has it\n`,
+    );
+  }
+  shortcutLabel = registered ? accelerator : '';
+
   // Clicking the dock icon must bring the window back, whether it was closed,
   // minimised or merely buried.
-  app.on('activate', () => {
-    if (window && !window.isDestroyed()) {
-      if (window.isMinimized()) window.restore();
-      window.show();
-      window.focus();
-      return;
-    }
-    createWindow();
-  });
+  app.on('activate', reveal);
 });
 
 app.on('window-all-closed', () => {
@@ -155,6 +190,8 @@ app.on('window-all-closed', () => {
 
 // The sidecar must die with the app on every exit path, not only when the last
 // window closes -- on macOS that event fires while the app stays alive.
+app.on('will-quit', () => globalShortcut.unregisterAll());
+
 app.on('before-quit', () => {
   bridge.close();
   agent.stop();
@@ -216,6 +253,13 @@ handle('theme:load', async (name?: string) => {
   }
   return { ...tokens, roles: ROLE_COLOURS[tokens.isDark ? 'dark' : 'light'] };
 });
+
+handle('window:hide', async () => {
+  window?.hide();
+  return { hidden: true, shortcut: shortcutLabel };
+});
+
+handle('window:shortcut', async () => ({ shortcut: shortcutLabel }));
 
 handle('window:pin', async (pinned: boolean) => {
   store.alwaysOnTop = pinned;
