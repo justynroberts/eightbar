@@ -292,3 +292,47 @@ a two-build track.
 `theory.PROGRESSIONS` has 63 entries -- pachelbel, lament, plagal, neapolitan,
 circle_of_fifths, rhythm_changes -- and `SCALES` has 27, including whole_tone,
 octatonic, phrygian_dominant and altered.
+
+## Musical quality is measured, not judged
+
+`critique.py` scores generated parts against the faults that make music sound
+generated, and `critique_music` exposes it as a tool. Every check exists because
+measurement found it in real output, not because it seemed likely:
+
+| Fault | What it measured before the fix |
+|---|---|
+| flat velocity | sd 0.0 on chords, pad, arp and drums |
+| no rests | a lead filling all 128 sixteenths of eight bars |
+| identical bars | 1 distinct drum bar out of 8 |
+| crowded register | lead, melody, hook and arp inside one octave |
+| one note length | every note of a part exactly the same duration |
+
+The realistic ensemble scored **22/100** before this work and **91/100** after.
+Run `critique_music` after generating; act on anything marked `high`.
+
+Two rules for changing it. Do not tune a threshold to make a finding go away --
+`test_crowding_is_still_reported` fails if the bands are ever adjusted to beat
+the metric rather than to separate the parts. And seed anything the quality
+tests generate: an unseeded ensemble scores differently every run, which makes
+a regression guard a coin toss.
+
+## perform.py: correct notes are not played notes
+
+The generators decide what to play and get it right. Everything that made the
+result sound typed rather than played is fixed in one place, applied to every
+part through `_write_clip`, because patching fifteen generators separately
+leaves the sixteenth wrong.
+
+- **accents** -- a per-role velocity curve across the sixteen steps of a bar
+- **phrase dynamics** -- rise into the end of a phrase, settle after it
+- **articulation** -- note length follows the accent
+- **breathe** -- thin a line that occupies over 75% of the sixteenths
+- **register** -- `REGISTER_BANDS` per role, then `fold_into_band` for strays
+
+Register is applied first because it changes pitches; spacing next, so removing
+a note does not disturb the dynamics of the ones that stay. `fold_into_band`
+skips parts wider than their band -- folding a two-octave arpeggio would destroy
+the contour rather than tidy it.
+
+Pass `played=False` to `_write_clip` for material whose exact velocities and
+lengths are the point.

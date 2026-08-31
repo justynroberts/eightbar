@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import (
-    arrangement, basslines, catalogue, corpus, generators, groove, harmony,
-    leads, melody, mixing, presets, theory, variations, voicings,
+    arrangement, basslines, catalogue, corpus, critique, generators, groove,
+    harmony, leads, melody, mixing, perform, presets, theory, variations,
+    voicings,
 )
 
 try:  # numpy and friends are optional; everything else works without them
@@ -374,7 +375,24 @@ class Toolbox:
         bars: float,
         notes: list[dict],
         name: str | None,
+        role: str | None = None,
+        played: bool = True,
     ) -> dict:
+        """Write notes to a clip, performed rather than merely correct.
+
+        Every generated part goes through here, which is why the performance
+        layer lives here too: measurement of the old output found flat velocity
+        and one note length per part in almost everything, and patching that
+        into fifteen generators separately would have left the sixteenth wrong.
+
+        `played=False` is for material whose exact velocities and lengths are
+        the point -- an imported clip, a hand-written note list.
+        """
+        if played and notes:
+            if role is None:
+                role = self._role_of_track(track_index)
+            notes = perform.perform(notes, role or "lead", bars=bars)
+
         result = self.bridge.call(
             "create_clip",
             track_index=track_index,
@@ -386,6 +404,21 @@ class Toolbox:
         )
         result["summary"] = generators.summarise(notes)
         return result
+
+    def _role_of_track(self, track_index: int) -> str | None:
+        """The role of a track, from its name, remembered for this session."""
+        cache = getattr(self, "_role_cache", None)
+        if cache is None:
+            cache = self._role_cache = {}
+        if track_index not in cache:
+            try:
+                track = self.bridge.call("get_track", track_index=track_index)
+                cache[track_index] = _role_from_name(
+                    track.get("name", ""), default=None
+                )
+            except (AbletonError, AbletonNotRunning):
+                return None
+        return cache[track_index]
 
     def _reference_progression(
         self, track_index: int, clip_index: int, bars: float
@@ -560,8 +593,7 @@ class Toolbox:
             seed=seed,
         )
         result = self._write_clip(
-            track_index, clip_index, bars, notes, name or f"{key} {scale} chords"
-        )
+            track_index, clip_index, bars, notes, name or f"{key} {scale} chords", role="chords")
         result["chords"] = [c.describe() for c in chords]
         return result
 
@@ -601,8 +633,7 @@ class Toolbox:
             seed=seed,
         )
         return self._write_clip(
-            track_index, clip_index, bars, notes, name or f"{key} {scale} bass"
-        )
+            track_index, clip_index, bars, notes, name or f"{key} {scale} bass", role="bass")
 
     # ------------------------------------------------------------------
     # The whole job
@@ -1202,8 +1233,7 @@ class Toolbox:
         )
         result = self._write_clip(
             track_index, clip_index, bars, notes,
-            name or f"{key} bass ({style})",
-        )
+            name or f"{key} bass ({style})", role="bass")
         result["style"] = style
         result["description"] = basslines.resolve(style).description
         return result
@@ -1242,8 +1272,7 @@ class Toolbox:
             groove=self._learned_groove(groove_name, "lead"), seed=seed,
         )
         result = self._write_clip(
-            track_index, clip_index, bars, notes, name or f"{key} lead ({style})"
-        )
+            track_index, clip_index, bars, notes, name or f"{key} lead ({style})", role="lead")
         result["style"] = style
         result["description"] = leads.resolve(style).description
         return result
@@ -1344,8 +1373,7 @@ class Toolbox:
         notes.sort(key=lambda n: (n["start"], n["pitch"]))
         result = self._write_clip(
             track_index, clip_index, bars, notes,
-            name or f"{key} {scale} chords ({variation})",
-        )
+            name or f"{key} {scale} chords ({variation})", role="chords")
         result["chords"] = [c.describe() for c in chords]
         result["steps"] = [s.describe() for s in steps]
         result["variation"] = harmony.RECIPES.get(variation, variation)
@@ -1360,7 +1388,8 @@ class Toolbox:
         velocity: int = 100,
         swing: float = 0.0,
         humanise: float = 0.0,
-        fill_last_bar: bool = False,
+        fill_last_bar: bool = True,
+        vary: bool = True,
         name: str | None = None,
         seed: int | None = None,
         groove: str = "straight",
@@ -1387,13 +1416,13 @@ class Toolbox:
             swing=swing,
             humanise=humanise,
             fill_last_bar=fill_last_bar,
+            vary=vary,
             seed=seed,
             groove=self._learned_groove(groove, "drums"),
             instruments=instruments,
         )
         return self._write_clip(
-            track_index, clip_index, bars, notes, name or f"{pattern} drums"
-        )
+            track_index, clip_index, bars, notes, name or f"{pattern} drums", role="drums")
 
     def _infer_drum_voices(self, track_index: int) -> list[str] | None:
         """Work out whether a drum track can take a whole kit or just one voice.
@@ -1478,8 +1507,7 @@ class Toolbox:
             seed=seed,
         )
         return self._write_clip(
-            track_index, clip_index, bars, notes, name or f"{key} arp"
-        )
+            track_index, clip_index, bars, notes, name or f"{key} arp", role="arp")
 
     def tool_create_melody_clip(
         self,
@@ -1542,8 +1570,7 @@ class Toolbox:
             durations=durations,
         )
         result = self._write_clip(
-            track_index, clip_index, bars, notes, name or f"{key} {scale} melody"
-        )
+            track_index, clip_index, bars, notes, name or f"{key} {scale} melody", role="melody")
         if notes:
             peak = max(notes, key=lambda n: n["pitch"])
             span = bars * BEATS_PER_BAR
@@ -2437,6 +2464,52 @@ class Toolbox:
         """Tell the app the set has just been saved, resetting the change count."""
         return self.bridge.call("mark_saved")
 
+    def tool_critique_music(
+        self, track_indices: list[int] | None = None, clip_index: int = 0,
+    ) -> dict:
+        """Measure what makes the current parts sound generated, and score them.
+
+        Checks each part for flat velocity, no rests, identical bars, a line
+        that never moves and one note length throughout; then checks the
+        ensemble for two top lines in the same octave, parts hitting on exactly
+        the same beats, a crowded low end, and nothing stating the harmony.
+
+        Every finding carries the number that proves it, so a change can be
+        shown to have helped rather than merely felt to have. Run it after
+        generating, act on anything marked high, and run it again.
+        """
+        state = self.bridge.call("get_song")
+        wanted = set(track_indices) if track_indices else None
+
+        parts = []
+        for track in state.get("tracks", []):
+            index = int(track["index"])
+            if wanted is not None and index not in wanted:
+                continue
+            if not track.get("is_midi"):
+                continue
+            try:
+                clip = self.bridge.call(
+                    "get_clip", track_index=index, clip_index=clip_index
+                )
+            except (AbletonError, AbletonNotRunning):
+                continue
+            notes = clip.get("notes") or []
+            if not notes:
+                continue
+            parts.append(critique.Part(
+                name=track.get("name") or f"track {index}",
+                role=_role_from_name(track.get("name", ""), default="lead"),
+                notes=notes,
+                bars=clip["length_beats"] / BEATS_PER_BAR,
+            ))
+
+        if not parts:
+            raise ToolError(
+                f"no MIDI clip in slot {clip_index} has any notes to judge"
+            )
+        return critique.critique(parts)
+
     def tool_clear_arrangement(self, track_indices: list[int] | None = None) -> dict:
         """Delete arrangement-timeline clips, on the given tracks or all of them."""
         backup = self._autosnapshot("clear-arrangement")
@@ -2485,8 +2558,7 @@ class Toolbox:
             seed=seed,
         )
         return self._write_clip(
-            track_index, clip_index, bars, notes, name or f"build {int(bars)}"
-        )
+            track_index, clip_index, bars, notes, name or f"build {int(bars)}", role="drums")
 
     def tool_create_snare_roll(
         self,
@@ -2508,7 +2580,7 @@ class Toolbox:
             bars=bars, instrument=instrument, end_division=end_division, seed=seed
         )
         return self._write_clip(track_index, clip_index, bars, notes,
-                                name or f"snare roll {bars:g}")
+                                name or f"snare roll {bars:g}", role="perc")
 
     def tool_create_clap_build(
         self,
@@ -2526,7 +2598,7 @@ class Toolbox:
         """
         notes = generators.generate_clap_build(bars=bars, layers=layers, seed=seed)
         return self._write_clip(track_index, clip_index, bars, notes,
-                                name or f"clap build {bars:g}")
+                                name or f"clap build {bars:g}", role="perc")
 
     def tool_create_drum_fill(
         self,
@@ -2544,7 +2616,7 @@ class Toolbox:
         """
         notes = generators.generate_drum_fill(bars=bars, style=style, seed=seed)
         return self._write_clip(track_index, clip_index, bars, notes,
-                                name or f"{style} fill")
+                                name or f"{style} fill", role="drums")
 
     def tool_create_riser_clip(
         self,
@@ -2573,8 +2645,7 @@ class Toolbox:
             octaves=octaves,
         )
         return self._write_clip(
-            track_index, clip_index, bars, notes, name or f"riser {direction}"
-        )
+            track_index, clip_index, bars, notes, name or f"riser {direction}", role="riser")
 
     def tool_create_impact_clip(
         self,
@@ -2590,7 +2661,7 @@ class Toolbox:
         notes = generators.generate_impact(
             bars=int(bars), crash=crash, sub_drop=sub_drop, sub_pitch=sub_pitch
         )
-        return self._write_clip(track_index, clip_index, bars, notes, name or "impact")
+        return self._write_clip(track_index, clip_index, bars, notes, name or "impact", role="impact")
 
     def tool_create_hook_clip(
         self,
@@ -2624,8 +2695,7 @@ class Toolbox:
             seed=seed,
         )
         return self._write_clip(
-            track_index, clip_index, bars, notes, name or f"{key} hook"
-        )
+            track_index, clip_index, bars, notes, name or f"{key} hook", role="hook")
 
     # ------------------------------------------------------------------
     # Placeholders

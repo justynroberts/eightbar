@@ -357,3 +357,141 @@ def test_tension_setting_changes_the_line():
     safe = m.write("C", "minor", chords, bars=8, tension=0.0, seed=4)
     edgy = m.write("C", "minor", chords, bars=8, tension=0.6, seed=4)
     assert [n["pitch"] for n in safe] != [n["pitch"] for n in edgy]
+
+
+def _generated_ensemble(crowded: bool = False):
+    """A set of parts, generated the way the tools generate them.
+
+    `crowded` adds a second and third top line on purpose. Lead, melody, hook
+    and arp all sounding at once is genuinely crowded music, and the critique
+    is supposed to say so -- see the test that asserts it still does.
+    """
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from fake_live import FakeBridge
+
+    from ableton_ai import critique
+    from ableton_ai.tools import Toolbox
+
+    box = Toolbox(FakeBridge())
+    # Seeded: an unseeded ensemble scores differently on every run, which makes
+    # a quality guard a coin toss rather than a regression test.
+    key = dict(key="A", scale="minor", degrees=[1, 6, 4, 5], bars=8, seed=7)
+    spec = [
+        ("Chords", "chords", "create_varied_chords",
+         dict(extension="ninth", voicing="spread", octave=3, **key)),
+        ("Bass", "bass", "create_styled_bass", dict(style="rolling", octave=1, **key)),
+        ("Lead", "lead", "create_lead_clip", dict(octave=5, **key)),
+        ("Pad", "pad", "create_chord_clip", dict(extension="seventh", octave=3, **key)),
+        ("Drums", "drums", "create_drum_clip", dict(pattern="tech_house", bars=8)),
+    ]
+    if crowded:
+        spec += [
+            ("Melody", "melody", "create_melody_clip", dict(octave=4, **key)),
+            ("Hook", "hook", "create_hook_clip", dict(octave=5, **key)),
+            ("Arp", "arp", "create_arpeggio_clip",
+             dict(octave=4, octaves=2, rate="1/16", **key)),
+        ]
+    parts = []
+    for index, (name, role, tool, kwargs) in enumerate(spec):
+        box.call("create_track", {"name": name, "role": role})
+        box.call(tool, {"track_index": index, "clip_index": 0, **kwargs})
+        parts.append(critique.Part(
+            name, role, box.bridge.tracks[index]["clips"][0]["notes"], 8
+        ))
+    return parts
+
+
+def test_generated_music_has_no_serious_faults():
+    """The regression guard for musical quality.
+
+    Measured before the performance layer existed: 3 serious and 6 moderate
+    faults, scoring 22/100. Flat velocity on four of eight parts, a lead
+    filling all 128 sixteenths, the same drum bar eight times, and three top
+    lines inside one octave.
+    """
+    from ableton_ai import critique
+
+    result = critique.critique(_generated_ensemble())
+    assert result["counts"]["high"] == 0, [
+        f["problem"] + " -- " + f["measured"]
+        for f in result["findings"] if f["severity"] == "high"
+    ]
+    assert result["score"] >= 85, result["summary"]
+
+
+def test_every_part_is_played_not_typed():
+    """Flat velocity is not a quiet dynamic, it is the absence of one."""
+    import statistics
+
+    for part in _generated_ensemble():
+        velocities = [n["velocity"] for n in part.notes]
+        assert statistics.pstdev(velocities) > 3.0, (
+            f"{part.name} has velocity sd "
+            f"{statistics.pstdev(velocities):.1f}"
+        )
+
+
+def test_dense_lines_are_given_rests():
+    """A line that fills every sixteenth has no phrases in it."""
+    for part in _generated_ensemble():
+        if part.role in ("pad", "drums", "chords", "bass"):
+            continue
+        onsets = {round(n["start"] * 4) for n in part.notes}
+        assert len(onsets) / (part.bars * 16) < 0.8, (
+            f"{part.name} occupies {len(onsets) / (part.bars * 16):.0%} of slots"
+        )
+
+
+def test_top_lines_land_in_their_own_registers():
+    """Lead, melody, hook and arp used to be written around the same octave.
+
+    They are checked against their bands rather than against each other: a
+    two-octave arpeggio necessarily shares register with something, and that is
+    the arpeggio doing its job.
+    """
+    import statistics
+
+    from ableton_ai import perform
+
+    for part in _generated_ensemble(crowded=True):
+        band = perform.REGISTER_BANDS.get(part.role)
+        if band is None:
+            continue
+        low, high = band
+        centre = statistics.fmean(part.pitches)
+        assert low - 6 <= centre <= high + 6, (
+            f"{part.role} is centred at {centre:.0f}, outside its band {band}"
+        )
+
+
+def test_crowding_is_still_reported():
+    """The measurement has to keep failing the arrangements that deserve it.
+
+    Four top lines at once is crowded music. If tightening the register bands
+    ever silences this, the bands have been tuned to beat the metric rather
+    than to separate the parts.
+    """
+    from ableton_ai import critique
+
+    crowded = critique.critique(_generated_ensemble(crowded=True))
+    spread = critique.critique(_generated_ensemble())
+    assert crowded["score"] < spread["score"], (
+        f"crowded {crowded['score']} vs spread {spread['score']}"
+    )
+
+
+def test_drums_mark_the_phrase():
+    """Eight identical bars is the loudest thing wrong with a programmed loop."""
+    from ableton_ai import generators
+
+    notes = generators.generate_drums(pattern="tech_house", bars=8, seed=1)
+    bars: dict[int, list] = {}
+    for note in notes:
+        bars.setdefault(int(note["start"] // 4), []).append(
+            (round(note["start"] % 4, 2), note["pitch"])
+        )
+    distinct = len({tuple(sorted(v)) for v in bars.values()})
+    assert distinct >= 4, f"only {distinct} distinct bars in 8"
