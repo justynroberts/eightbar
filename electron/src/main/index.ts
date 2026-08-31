@@ -78,7 +78,21 @@ function createWindow(): void {
   });
 
   if (devServer) {
-    void window.loadURL(devServer);
+    // `npm run dev` starts Vite and Electron together, and Electron usually
+    // wins: it asks for the URL before Vite is listening, gets
+    // ERR_CONNECTION_REFUSED, and shows a blank window for the rest of the
+    // session because nothing retries. So retry until it answers.
+    const target = window;
+    const loadDevServer = (attempt = 0): void => {
+      target.loadURL(devServer).catch(() => {
+        if (attempt >= 40 || target.isDestroyed()) {
+          process.stderr.write(`[ui] dev server never came up at ${devServer}\n`);
+          return;
+        }
+        setTimeout(() => loadDevServer(attempt + 1), 250);
+      });
+    };
+    loadDevServer();
   } else {
     void window.loadFile(join(here, '../renderer/index.html'));
   }

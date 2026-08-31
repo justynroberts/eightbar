@@ -11,5 +11,9 @@ export default defineConfig({
     outDir: resolve(__dirname, 'dist/renderer'),
     emptyOutDir: true,
   },
-  server: { port: 7818, strictPort: true },
+  // Bind IPv4 explicitly. Vite's default binds ::1 only, while the main
+  // process asks for http://127.0.0.1:7818 -- so `npm run dev` came up with a
+  // blank window and ERR_CONNECTION_REFUSED, with a dev server that was
+  // running perfectly the whole time.
+  server: { host: '127.0.0.1', port: 7818, strictPort: true },
 });
