@@ -724,3 +724,98 @@ def test_learned_motif_becomes_a_workable_cell():
     assert positions(theme["bass"]) == positions(theme["lead"]), (
         "the learned cell's rhythm did not reach both parts"
     )
+
+
+def test_melodic_peak_lands_on_the_harmonic_peak():
+    """The climax note belongs over the climax chord.
+
+    Harmony and melody carry tension separately; a composer releases them
+    together. The melody's single highest note must fall within the span of
+    the progression's highest-tension chord.
+    """
+    from ableton_ai import melody, theory
+    from ableton_ai.composing import chord_tension
+
+    chords = theory.build_progression("D", "minor", [1, 6, 4, 5], octave=4)
+    tensions = [chord_tension(c.degree, c.quality, "minor") for c in chords]
+    peak_chord = max(range(4), key=lambda i: (tensions[i], i))
+
+    hits = 0
+    for seed in range(5):
+        notes = melody.write("D", "minor", chords, bars=8, tension=0.3,
+                             seed=seed)
+        top = max(notes, key=lambda n: n["pitch"])
+        if int(top["start"] // 8) == peak_chord:
+            hits += 1
+    assert hits >= 4, f"peak aligned with the tensest chord only {hits}/5 times"
+
+
+def test_counterpoint_repair_breaks_parallels_minimally():
+    """Planted parallel fifths are dissolved; the bass is never touched."""
+    from ableton_ai import composing
+
+    bass = [{"pitch": p, "start": float(i), "duration": 1, "velocity": 90}
+            for i, p in enumerate((50, 52, 53, 55))]
+    top = [{"pitch": p + 7, "start": float(i), "duration": 1, "velocity": 90}
+           for i, p in enumerate((50, 52, 53, 55))]
+
+    repaired, fixed = composing.repair_counterpoint(bass, top, "C", "major")
+    assert fixed >= 3
+    assert composing.parallel_perfects(bass, repaired) == []
+    # Minimal motion: no repaired note moved more than a third.
+    for before, after in zip(top, repaired):
+        assert abs(after["pitch"] - before["pitch"]) <= 4
+
+    # And the composed theme ships clean against its own bass.
+    from ableton_ai import theory
+    chords = theory.build_progression("A", "minor", [1, 6, 4, 5], octave=3)
+    for seed in range(4):
+        theme = composing.compose_theme("A", "minor", chords,
+                                        bars_per_chord=2.0, seed=seed)
+        for part in ("lead", "counter", "hook"):
+            hits = composing.parallel_perfects(theme["bass"], theme[part])
+            assert not hits, f"seed {seed} {part}: {hits}"
+
+
+def test_corpus_styles_cluster_and_filter(tmp_path):
+    """Thirty house references and five DnB ones are two tastes, not one."""
+    from ableton_ai import corpus as c
+
+    library = c.Library(path=tmp_path / "corpus.json")
+    for name, tempo, prog in (("h1", 122, [1, 6, 4, 5]), ("h2", 124, [1, 6, 4, 5]),
+                              ("h3", 121, [1, 4, 6, 5])):
+        library.add(c.Reference(
+            name=name, path=f"/{name}.mid", tempo=tempo, bars=8.0,
+            key_root="A", key_scale="minor", key_confidence=0.9,
+            progression=prog,
+            parts={"bass": {"notes": 16, "articulation":
+                            {"style": "rolling", "onsets_per_bar": 4,
+                             "legato": 0.4}}},
+        ))
+    library.add(c.Reference(
+        name="dnb1", path="/dnb1.mid", tempo=174, bars=8.0,
+        key_root="F", key_scale="minor", key_confidence=0.9,
+        progression=[1, 2, 1, 7],
+        parts={"bass": {"notes": 32, "articulation":
+                        {"style": "reese", "onsets_per_bar": 8,
+                         "legato": 0.8}}},
+    ))
+
+    styles = library.cluster_styles()
+    assert len(styles) == 2, styles
+    biggest = next(iter(styles.values()))
+    assert biggest["count"] == 3 and biggest["bass_style"] == "rolling"
+
+    # A style-filtered walk only uses that cohort's transitions: the DnB
+    # cluster's 2 -> 1 move must never appear in the house walk.
+    model = library.transition_model(style="rolling")
+    assert 2 not in model, model
+    assert 6 in model
+
+    # A loose word matches; nonsense refuses with the list.
+    assert library._in_style("fast")[0].name == "dnb1"
+    try:
+        library._in_style("polka")
+        raise AssertionError("unknown style should refuse")
+    except ValueError as exc:
+        assert "polka" in str(exc)

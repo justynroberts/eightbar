@@ -178,7 +178,6 @@ def write(
 
     notes: list[Note] = []
     cursor = 0.0
-    peak_index: int | None = None
     peak_target = 0
 
     # The peak belongs to the whole melody, not to each phrase: find the
@@ -186,11 +185,42 @@ def write(
     for phrase in phrases:
         peak_target = max(peak_target, 8 + phrase.register_shift)
 
+    # The climax note belongs over the climax chord. Harmony and melody carry
+    # tension separately, and a composer aligns them: the highest note of the
+    # line lands where the progression strains hardest, so the two releases
+    # happen together. Without this the melodic peak fell wherever the last
+    # phrase put it, which could be over the most relaxed chord in the loop.
+    from .composing import chord_tension
+
+    tensions = [chord_tension(c.degree, c.quality, scale_key)
+                for _s, _e, c in boundaries]
+    # Prefer the later of equally tense chords: a climax two-thirds through
+    # reads as arrival, the same chord in bar one reads as a false start.
+    peak_beat = max(
+        ((tension + 0.001 * index, boundaries[index][0])
+         for index, tension in enumerate(tensions)),
+    )[1]
+
+    # Which phrase holds that beat. That phrase owns the melody's top.
+    peak_phrase = len(phrases) - 1
+    at_bar = 0.0
+    for index, phrase in enumerate(phrases):
+        span = phrase.bars * stretch
+        if at_bar * BEATS_PER_BAR <= peak_beat < (at_bar + span) * BEATS_PER_BAR:
+            peak_phrase = index
+            break
+        at_bar += span
+
+    # Where the line last stood, surviving phrase boundaries. The classic
+    # appoggiatura placement is the *first* strong beat of a phrase over a
+    # chord change -- exactly where per-phrase state used to be None, which
+    # made the lean impossible in the very spot it belongs.
+    carried: int | None = None
+
     for phrase_number, phrase in enumerate(phrases):
-        # Only the last phrase may reach the top. An answering phrase that
-        # cannot out-sing the question is the whole point of the shape -- if
-        # phrase one peaks highest, the climax has already happened.
-        is_final = phrase_number == len(phrases) - 1
+        # Only the phrase holding the harmonic peak may reach the top. A
+        # phrase that out-sings the climax before it arrives has spent it.
+        is_final = phrase_number == peak_phrase
         ceiling = peak_target if is_final else max(2, peak_target - 3)
         span = phrase.bars * stretch
         cell = RHYTHMS.get(phrase.rhythm, RHYTHMS["syncopated"])
@@ -207,8 +237,19 @@ def write(
             cursor += span * BEATS_PER_BAR
             continue
 
-        # Which onset carries the phrase's highest note.
-        phrase_peak = int(len(onsets) * phrase.peak_at)
+        # Which onset carries the phrase's highest note. In the peak phrase
+        # it is the onset nearest the peak chord's arrival, so the climax
+        # note sounds as the climax chord lands; elsewhere the phrase's own
+        # shape decides.
+        if is_final and onsets:
+            phrase_peak = min(
+                range(len(onsets)),
+                key=lambda i: (abs(onsets[i] - peak_beat),
+                               # tie-break towards the strong beat
+                               -beat_strength(onsets[i])),
+            )
+        else:
+            phrase_peak = int(len(onsets) * phrase.peak_at)
         last_index = len(onsets) - 1
         previous: int | None = None
         pending_resolution: int | None = None
@@ -237,6 +278,12 @@ def write(
             if pending_resolution is not None:
                 index = pending_resolution
                 pending_resolution = None
+                # A resolution promised under the previous chord can land on
+                # the next one's downbeat, where it may not be a chord tone at
+                # all -- an accidental dissonance the line never resolves.
+                # Resolve into the harmony that is actually sounding.
+                if tones and index not in tones:
+                    index = min(tones, key=lambda i: abs(i - index))
             elif position == last_index:
                 # Land the phrase on a degree its cadence allows, below the
                 # peak and close to where the line already is. A cadence that
@@ -264,8 +311,8 @@ def write(
                 index = max(reachable) if reachable else min(tones, key=lambda i: abs(i - ceiling))
             elif (
                 strength == STRONG
-                and previous is not None
-                and position != 0
+                and (previous is not None or carried is not None)
+                and at > 0
                 and any(abs(at - start) < 1e-6 for start, _end, _c in boundaries)
                 and rng.random() < tension * 0.9
             ):
@@ -276,10 +323,17 @@ def write(
                 # on the strong beat; the same note on a weak beat is merely
                 # a passing tone. It is why a sung line aches where a
                 # sequenced one just proceeds.
-                target = min(tones, key=lambda i: abs(i - previous))
-                index = min(len(pitches) - 1, target + 1)
-                pending_resolution = target
-                appoggiatura = True
+                here = previous if previous is not None else carried
+                target = min(tones, key=lambda i: abs(i - here))
+                if target + 1 > ceiling:
+                    # No room to lean from above: the fold-down would put the
+                    # lean *below* its resolution, and an appoggiatura that
+                    # resolves upward out of a fold is just a wrong note.
+                    index = target
+                else:
+                    index = target + 1
+                    pending_resolution = target
+                    appoggiatura = True
             elif strength == STRONG or previous is None:
                 # Strong beats take chord tones -- that is what makes the line
                 # sound like it belongs to the harmony. But a third repeat of
@@ -353,6 +407,7 @@ def write(
             })
             repeats = repeats + 1 if index == previous else 0
             previous = index
+            carried = index
 
         cursor += span * BEATS_PER_BAR
 

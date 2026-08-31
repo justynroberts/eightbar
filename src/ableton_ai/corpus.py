@@ -614,9 +614,75 @@ class Library:
             "top_movements": self.common_movements(8),
         }
 
+    # -- styles: which references sound alike ------------------------
+
+    def cluster_styles(self) -> dict[str, dict]:
+        """Group the references into styles, so generation can pick a cohort.
+
+        One reference library is not one taste: thirty files of melodic house
+        and five of DnB averaged together describe nothing anyone wrote.
+        References cluster on the three features that most decide how a track
+        feels -- mode, tempo band, and bass articulation -- and everything
+        that generates "from the corpus" can then draw from one cluster
+        instead of the soup.
+        """
+        clusters: dict[str, dict] = {}
+        for name, reference in self.references.items():
+            tempo = reference.tempo or 120.0
+            band = ("slow" if tempo < 100 else
+                    "mid" if tempo < 125 else
+                    "club" if tempo < 140 else "fast")
+            bass = "none"
+            if "bass" in reference.parts:
+                bass = (reference.parts["bass"].get("articulation") or {})                     .get("style", "unknown")
+            label = f"{reference.key_scale}-{band}-{bass}"
+            entry = clusters.setdefault(label, {
+                "style": label,
+                "scale": reference.key_scale,
+                "tempo_band": band,
+                "bass_style": bass,
+                "references": [],
+                "tempos": [],
+            })
+            entry["references"].append(name)
+            entry["tempos"].append(tempo)
+
+        for entry in clusters.values():
+            tempos = entry.pop("tempos")
+            entry["count"] = len(entry["references"])
+            entry["median_tempo"] = round(statistics.median(tempos), 1)
+        return dict(sorted(clusters.items(),
+                           key=lambda kv: -kv[1]["count"]))
+
+    def _in_style(self, style: str | None) -> list[Reference]:
+        """The references a style filter selects; all of them when None."""
+        if not style:
+            return list(self.references.values())
+        clusters = self.cluster_styles()
+        if style in clusters:
+            names = set(clusters[style]["references"])
+            return [r for n, r in self.references.items() if n in names]
+        # A loose word -- "club", "minor", "rolling" -- matches any cluster
+        # whose label contains it.
+        wanted = str(style).lower()
+        names = {
+            name
+            for label, entry in clusters.items()
+            if wanted in label.lower()
+            for name in entry["references"]
+        }
+        if not names:
+            raise ValueError(
+                f"no learned style matches {style!r}; "
+                f"styles: {', '.join(clusters) or 'none yet'}"
+            )
+        return [r for n, r in self.references.items() if n in names]
+
     # -- generating from what was learned ----------------------------
 
-    def transition_model(self) -> dict[int, list[tuple[int, float]]]:
+    def transition_model(
+        self, style: str | None = None
+    ) -> dict[int, list[tuple[int, float]]]:
         """Weighted chord-to-chord moves, as degree -> [(next, probability)].
 
         Whole progressions rarely repeat across a varied corpus; the moves
@@ -624,7 +690,7 @@ class Library:
         but behaves like the references.
         """
         counts: dict[int, Counter[int]] = defaultdict(Counter)
-        for reference in self.references.values():
+        for reference in self._in_style(style):
             degrees = [d for d in reference.progression if d]
             for a, b in zip(degrees, degrees[1:]):
                 counts[a][b] += 1
@@ -642,6 +708,7 @@ class Library:
         seed: int | None = None,
         avoid_repeats: bool = True,
         cadence: bool = True,
+        style: str | None = None,
     ) -> dict:
         """Walk the learned transitions to propose a new progression.
 
@@ -652,7 +719,7 @@ class Library:
         import random
 
         rng = random.Random(seed)
-        model = self.transition_model()
+        model = self.transition_model(style)
         if not model:
             raise ValueError("nothing learned yet -- run learn_references first")
 

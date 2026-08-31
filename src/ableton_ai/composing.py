@@ -426,6 +426,13 @@ def compose_theme(
                     "velocity": 104,
                 })
 
+    # The composed ensemble ships with clean counterpoint: any parallel
+    # perfects between the bass and a melodic line are repaired here, upper
+    # line moving minimally, before anything reaches a clip.
+    lead, _ = repair_counterpoint(bass, lead, key, scale)
+    counter, _ = repair_counterpoint(bass, counter, key, scale)
+    hook, _ = repair_counterpoint(bass, hook, key, scale)
+
     clip = lambda notes: [  # noqa: E731 -- trim anything past the loop end
         n for n in notes if float(n["start"]) < total_bars * BEATS_PER_BAR
     ]
@@ -439,6 +446,78 @@ def compose_theme(
 
 
 # ------------------------------------------------------------- counterpoint
+
+def repair_counterpoint(
+    lower: Sequence[Note],
+    upper: Sequence[Note],
+    key: str,
+    scale: str,
+) -> tuple[list[Note], int]:
+    """Break parallel perfects by moving the upper line, minimally.
+
+    Detection says two lines have fused; this un-fuses them. At each parallel
+    fifth or octave the *second* upper note -- the one that completed the
+    parallel -- moves to the nearest scale tone that is neither a perfect
+    interval with the bass nor a repeat of the fault. The bass is never
+    touched: its job is the root and the groove, and the ear forgives an
+    altered inner note far more readily than an altered bass.
+
+    Moves are at most two scale steps, so the line's contour survives. A
+    fault with no compliant note within reach is left alone -- a rare
+    parallel is a style; a wrong-sounding leap to avoid one is a mistake.
+
+    Returns the repaired upper line and how many faults were fixed.
+    """
+    scale_key = theory.normalise_scale(scale)
+    root_class = theory.note_to_pitch_class(key)
+    intervals = theory.SCALES[scale_key]
+    in_scale = {(root_class + i) % 12 for i in intervals}
+
+    repaired = [dict(n) for n in upper]
+    fixed = 0
+    for _pass in range(3):          # a fix can create a new adjacency
+        faults = parallel_perfects(lower, repaired)
+        if not faults:
+            break
+        moved = False
+        for fault in faults:
+            beat = None
+            # The fault names the two onsets; the second completes it.
+            low_at_second = fault["pitches"][2]
+            # Find the second onset: the next shared onset after at_beat.
+            onsets = sorted({round(float(n["start"]), 3) for n in repaired})
+            later = [b for b in onsets if b > fault["at_beat"] + 1e-6]
+            if not later:
+                continue
+            beat = later[0]
+            bass_pitch = low_at_second
+
+            for note in repaired:
+                if abs(float(note["start"]) - beat) > 1e-3:
+                    continue
+                original = int(note["pitch"])
+                candidates = []
+                for delta in (-1, 1, -2, 2):
+                    trial = original + delta
+                    # Walk to the nearest scale tone in that direction.
+                    steps = 0
+                    while trial % 12 not in in_scale and steps < 3:
+                        trial += 1 if delta > 0 else -1
+                        steps += 1
+                    if trial % 12 not in in_scale:
+                        continue
+                    if abs(trial - bass_pitch) % 12 in (0, 7):
+                        continue
+                    candidates.append((abs(trial - original), trial))
+                if candidates:
+                    note["pitch"] = min(candidates)[1]
+                    fixed += 1
+                    moved = True
+                break
+        if not moved:
+            break
+    return repaired, fixed
+
 
 def parallel_perfects(
     line_a: Sequence[Note], line_b: Sequence[Note]

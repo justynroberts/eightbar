@@ -381,3 +381,20 @@ Wired into the pipeline, not just available beside it:
 - `compose_theme(rhythm="learned")` builds the cell from a corpus-extracted
   motif (`motif.cell_from_learned`): reference contour and rhythm, developed
   exactly like a written cell.
+
+Three behaviours that separate a composer from a generator, all measured:
+
+- **The climax note lands on the climax chord.** `melody.write` scores each
+  chord's tension and gives the melody's single reserved peak to the phrase
+  holding the tensest chord, on the onset nearest its arrival — harmony and
+  melody release together. A resolution promised under one chord re-snaps to
+  the chord actually sounding when it lands across a boundary.
+- **Counterpoint is repaired, not just reported.** `repair_counterpoint`
+  dissolves parallel fifths/octaves by moving the upper line at most two scale
+  steps (never the bass); `compose_theme` runs it on lead, counter and hook
+  against the bass before anything reaches a clip.
+- **The corpus has styles, not a soup.** `Library.cluster_styles()` groups
+  references by mode, tempo band and bass articulation;
+  `suggest_progression(style=...)`, the learned-motif pick in `compose_theme`,
+  and `corpus_profile` all draw from one cohort. A loose word ("club",
+  "rolling") matches a cluster; nonsense refuses with the list.

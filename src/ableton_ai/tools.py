@@ -1242,6 +1242,7 @@ class Toolbox:
         seed: int | None = None,
         shape: str = "arch",
         rhythm: str = "syncopated",
+        style: str | None = None,
         reference_track: int | None = None,
         reference_clip: int = 0,
     ) -> dict:
@@ -1268,9 +1269,13 @@ class Toolbox:
         cell = None
         if str(rhythm).lower() in LEARNED or str(shape).lower() in LEARNED:
             library = self._library()
+            try:
+                cohort = library._in_style(style)
+            except ValueError as exc:
+                raise ToolError(str(exc)) from exc
             candidates = [
                 r.parts[part]["motif"]
-                for r in library.references.values()
+                for r in cohort
                 for part in ("lead", "melody")
                 if part in r.parts and r.parts[part].get("motif")
             ]
@@ -1356,6 +1361,7 @@ class Toolbox:
         if not library.references:
             raise ToolError("nothing learned yet -- run learn_references first")
 
+        styles = library.cluster_styles()
         grooves = {}
         for role in ("drums", "bass", "chords", "lead", "melody"):
             learned = library.groove_for(role)
@@ -1369,6 +1375,7 @@ class Toolbox:
             "voicing": voicing,
             "bass": bass,
             "grooves": grooves,
+            "styles": styles,
             "top_progressions": library.common_progressions(6),
             "top_movements": library.common_movements(8),
             "chord_qualities": library.common_qualities(),
@@ -1396,9 +1403,14 @@ class Toolbox:
         return library.summary()
 
     def tool_suggest_progression(
-        self, length: int = 4, start: int = 1, seed: int | None = None
+        self, length: int = 4, start: int = 1, seed: int | None = None,
+        style: str | None = None,
     ) -> dict:
         """Propose a progression by walking the learned chord movements.
+
+        `style` narrows the walk to one cluster of references -- corpus_profile
+        lists them -- so thirty house references and five DnB ones stop being
+        averaged into a taste nobody has.
 
         Whole progressions rarely repeat across a corpus, but the moves inside
         them do -- so this produces something new that still behaves like the
@@ -1411,7 +1423,8 @@ class Toolbox:
                 "MIDI files first"
             )
         suggestion = dict(
-            library.suggest_progression(length=length, start=start, seed=seed)
+            library.suggest_progression(length=length, start=start, seed=seed,
+                                        style=style)
         )
         suggestion["learned_from"] = len(library.references)
         suggestion["summary"] = (
