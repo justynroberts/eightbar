@@ -128,11 +128,46 @@ function el(tag: string, cls?: string, text?: string): HTMLElement {
   return node;
 }
 
+/**
+ * The little markdown the agent actually writes, rendered safely.
+ *
+ * The model answers with **bold**, `code`, bullet lists and the odd heading,
+ * and showing those as raw asterisks makes every reply look broken. Escaping
+ * first and transforming after means no HTML from the model ever executes --
+ * this renders four constructs, it does not trust a document.
+ */
+function mdToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const lines = escaped.split('\n').map((line) => {
+    if (/^#{1,4}\s+/.test(line)) {
+      return `<strong class="md-h">${line.replace(/^#{1,4}\s+/, '')}</strong>`;
+    }
+    if (/^\s*[-*]\s+/.test(line)) {
+      return `<span class="md-li">• ${line.replace(/^\s*[-*]\s+/, '')}</span>`;
+    }
+    return line;
+  });
+  return lines
+    .join('<br>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>');
+}
+
 function addTurn(who: 'you' | 'ai', text: string): HTMLElement {
   maybe('placeholder')?.remove();
   const wrap = el('div', `turn ${who}`);
   wrap.appendChild(el('div', 'turn-label', who === 'you' ? 'you' : 'ableton ai'));
-  const bubble = el('div', 'bubble', text);
+  const bubble = el('div', 'bubble');
+  if (who === 'ai') {
+    // Escaped-then-transformed above: the only tags are ones this file wrote.
+    bubble.innerHTML = mdToHtml(text);
+  } else {
+    bubble.textContent = text;
+  }
   wrap.appendChild(bubble);
   transcript.appendChild(wrap);
   transcript.scrollTop = transcript.scrollHeight;
@@ -468,9 +503,33 @@ async function send(text: string): Promise<void> {
 
   const pending = new Map<string, HTMLElement>();
 
+  // The gap between Send and the first agent event can be a minute on the
+  // keyless CLI backend, and an interface that shows nothing for a minute
+  // reads as broken however hard it is working. Say so, with a clock.
+  const working = el('div', 'turn ai working');
+  const workingLabel = el('span', 'working-label', 'thinking…');
+  working.appendChild(el('span', 'working-dots', '●●●'));
+  working.appendChild(workingLabel);
+  transcript.appendChild(working);
+  transcript.scrollTop = transcript.scrollHeight;
+  const startedAt = Date.now();
+  const tick = window.setInterval(() => {
+    const seconds = Math.round((Date.now() - startedAt) / 1000);
+    workingLabel.textContent =
+      seconds < 8
+        ? 'thinking…'
+        : `thinking… ${seconds}s (the keyless CLI backend is slow to start; ` +
+          'an API key in Sounds makes this immediate)';
+  }, 1000);
+  const stopWorking = () => {
+    window.clearInterval(tick);
+    working.remove();
+  };
+
   // Each agent step arrives as its own event, so progress is visible while a
   // long arrangement is being built rather than only at the end.
   const unsubscribe = api.onAgentEvent((event) => {
+    stopWorking();
     const kind = String(event.kind ?? '');
     if (kind === 'text') {
       addTurn('ai', String(event.text ?? ''));
@@ -495,6 +554,7 @@ async function send(text: string): Promise<void> {
   } catch (error) {
     addNotice(error instanceof Error ? error.message : String(error));
   } finally {
+    stopWorking();
     unsubscribe();
     busy = false;
     sendBtn.disabled = false;
