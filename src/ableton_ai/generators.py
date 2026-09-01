@@ -296,7 +296,7 @@ def generate_drums(
     velocity: int = 100,
     swing: float = 0.0,
     humanise: float = 0.0,
-    fill_last_bar: bool = True,
+    fill_last_bar: bool = False,
     vary: bool = True,
     seed: int | None = None,
     groove: str = "straight",
@@ -361,13 +361,15 @@ def generate_drums(
     for bar in range(bars):
         bar_start = bar * BEATS_PER_BAR
         is_fill = fill_last_bar and bar == bars - 1
-        # Where this bar sits in the four-bar phrase. Drummers mark the phrase:
-        # the fourth bar answers, the eighth turns it around. Eight identical
-        # bars is the loudest thing wrong with a programmed loop, and measuring
-        # the old output found exactly one distinct bar in eight.
-        in_phrase = bar % 4
-        turnaround = vary and in_phrase == 3 and not is_fill
-        half = vary and in_phrase == 1
+        # Where this bar sits in the phrase. Dance drums mark the EIGHT-bar
+        # phrase, and they mark it once, with one small gesture -- a dropped
+        # kick, a single open hat. The first version stacked an open hat, a
+        # clap stutter, ghost notes and extra perc every four bars, and the
+        # user's verdict was the right spec: "some small variation at the end
+        # of bar 8 is enough. Doesn't need big rolls, be more subtle."
+        in_phrase = bar % 8
+        turnaround = vary and in_phrase == 7 and not is_fill
+        half = False
 
         for instrument, line in grid.items():
             pitch = DRUM_MAP.get(instrument)
@@ -391,24 +393,12 @@ def generate_drums(
                 )
 
         if turnaround and "closed_hat" in grid:
-            # An open hat lifts into the next phrase.
+            # One open hat lifting into the next phrase. That is the whole
+            # gesture: the dropped last kick above plus this single hat is
+            # what "the drummer marked the phrase" sounds like in a club.
             notes.append({"pitch": DRUM_MAP["open_hat"],
                           "start": bar_start + 3.5, "duration": SIXTEENTH * 2,
-                          "velocity": min(127, velocity + 8)})
-        if turnaround and "clap" in grid:
-            # The stutter that announces the turn.
-            notes.append({"pitch": DRUM_MAP["clap"],
-                          "start": bar_start + 3.75, "duration": SIXTEENTH,
-                          "velocity": max(1, velocity - 25)})
-        if half and "closed_hat" in grid:
-            # A ghost sixteenth: quiet enough to feel rather than hear.
-            notes.append({"pitch": DRUM_MAP["closed_hat"],
-                          "start": bar_start + 2.75, "duration": SIXTEENTH,
-                          "velocity": max(1, velocity - 40)})
-        if vary and in_phrase == 2 and "perc" in DRUM_MAP and rng.random() < 0.6:
-            notes.append({"pitch": DRUM_MAP["perc"],
-                          "start": bar_start + 1.75, "duration": SIXTEENTH,
-                          "velocity": max(1, velocity - 30)})
+                          "velocity": min(127, velocity + 6)})
         if is_fill:
             for i, pitch in enumerate([41, 45, 45, 48, 48, 50]):
                 notes.append(

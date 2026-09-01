@@ -29,8 +29,10 @@ TASTE_PATH = CONFIG_DIR / "taste.json"
 class Taste:
     """A per-kind, per-context tally of what the user picked."""
 
-    def __init__(self, path: Path = TASTE_PATH) -> None:
-        self.path = path
+    def __init__(self, path: Path | None = None) -> None:
+        # Late-bound for the same reason as SoundPreferences: import-time
+        # defaults make monkeypatched isolation silently ineffective.
+        self.path = path if path is not None else TASTE_PATH
         self._data: dict[str, Any] | None = None
 
     def load(self) -> dict[str, Any]:

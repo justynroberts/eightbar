@@ -43,7 +43,16 @@ class FakeBridge:
         handler = getattr(self, f"_{command}", None)
         if handler is None:
             raise AbletonError(f"unknown command: {command}")
-        return handler(**params)
+        try:
+            return handler(**params)
+        except AbletonError:
+            raise
+        except Exception as exc:
+            # The real remote script catches handler exceptions and returns
+            # them as error responses, which the bridge raises as
+            # AbletonError. A fake that lets KeyError escape is testing an
+            # error path the real system does not have.
+            raise AbletonError(f"{command}: {exc}") from exc
 
     # -- helpers ------------------------------------------------------
 
@@ -460,16 +469,44 @@ class FakeBridge:
         self.view = view
         return {"view": view}
 
+    # A believable slice of the browser, so preference validation and preset
+    # picking exercise their real logic instead of matching one hardcoded hit.
+    BROWSER: dict[str, list[str]] = {
+        "": ["Instruments/", "Drums/", "Sounds/", "Audio Effects/", "Plugins/"],
+        "Instruments": ["Operator", "Wavetable", "Drum Rack"],
+        "Drums": ["909 Core Kit.adg", "808 Core Kit.adg"],
+        "Sounds": ["Bass/", "Pad/", "Synth Lead/", "Synth Keys/"],
+        "Sounds/Bass": ["Deep Sub Bass", "Analog Bass"],
+        "Sounds/Pad": ["Warm Analog Pad", "Evolving Pad"],
+        "Sounds/Synth Lead": ["Bright Saw Lead", "Soft Lead"],
+        "Sounds/Synth Keys": ["Warm Keys", "Pluck Keys"],
+        "Audio Effects": ["EQ Eight", "Compressor", "Glue Compressor",
+                          "Reverb", "Delay", "Saturator", "Limiter",
+                          "Auto Filter", "Utility"],
+        "Plugins": ["VST3/"],
+        "Plugins/VST3": ["Xfer Records/"],
+        "Plugins/VST3/Xfer Records": ["Serum 2"],
+    }
+
     def _browse(self, path: str = "", limit: int = 100) -> dict:
-        if not path:
-            return {"path": "", "items": [
-                {"name": "Instruments", "is_folder": True, "uri": None},
-                {"name": "Drums", "is_folder": True, "uri": None}]}
+        entries = self.BROWSER.get(path.strip("/"))
+        if entries is None:
+            raise KeyError(f"no browser item at {path!r}")
         return {"path": path, "items": [
-            {"name": "Drum Rack", "is_folder": False, "is_loadable": True,
-             "uri": "query:Drums#Drum%20Rack"}]}
+            {"name": e.rstrip("/"), "is_folder": e.endswith("/"),
+             "is_loadable": not e.endswith("/"),
+             "uri": None if e.endswith("/") else f"query:{e}"}
+            for e in entries
+        ]}
 
     def _load_device(self, track_index: int, path=None, uri=None) -> dict:
+        # Live raises on a path that does not exist; a fake that loads
+        # anything hides every bad-preference bug there is.
+        if path and not uri:
+            parent, _, leaf = str(path).rpartition("/")
+            known = self.BROWSER.get(parent.strip("/"), [])
+            if leaf not in [k.rstrip("/") for k in known]:
+                raise AbletonError(f"no browser item at {path!r}")
         self._track(track_index)["devices"].append(path or uri or "device")
         return {"track_index": track_index, "loaded": path or uri}
 

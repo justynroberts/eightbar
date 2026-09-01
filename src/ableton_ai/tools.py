@@ -607,7 +607,7 @@ class Toolbox:
         bars: float = 8,
         rhythm: str = "offbeat",
         style: str = "root",
-        octave: int = 1,
+        octave: int = 2,
         velocity: int = 100,
         swing: float = 0.0,
         humanise: float = 0.0,
@@ -768,8 +768,18 @@ class Toolbox:
             ("Melody", "lead"), ("Riser", "riser"), ("Impact", "impact"),
             ("Build", "drums"),
         ]
+        # Reuse this build's own tracks when they already exist: running
+        # build_track twice used to create a second complete band next to the
+        # first, and twenty tracks of doubled parts is its own kind of awful.
+        existing = {
+            str(t.get("name")): int(t["index"])
+            for t in self.bridge.call("get_song").get("tracks", [])
+        }
         made: dict[str, int] = {}
         for name, role in layout:
+            if name in existing:
+                made[name] = existing[name]
+                continue
             created = step(f"track {name}",
                            lambda n=name, r=role: self.tool_create_track(n, r))
             if created:
@@ -868,10 +878,14 @@ class Toolbox:
                 roles=["vocal", "fx"]))
 
         # -- arrangement --------------------------------------------------
+        # Build is a transition element: it belongs in builds, positioned to
+        # finish on the boundary like a riser. With role "drums" it played
+        # through every drop too -- the accelerating roll under the whole
+        # chorus was most of what "drums sound busy" meant.
         role_of = {"Kick": "kick", "Drums": "drums", "Bass": "bass",
                    "Chords": "chords", "Hook": "hook", "Lead": "lead",
                    "Melody": "arp", "Riser": "riser", "Impact": "impact",
-                   "Build": "drums"}
+                   "Build": "riser"}
         entries = []
         for name, index in made.items():
             entry: dict[str, Any] = {"track_index": index, "role": role_of[name]}
@@ -946,6 +960,10 @@ class Toolbox:
                 f"{s['name']}@{s['start_bar']}" for s in plan["sections"]
             ]
             report["duration"] = plan["duration"]
+
+        # A part that plays nothing makes the whole track sound broken,
+        # whatever its notes say. Verify and repair before any polish.
+        step("soundcheck", lambda: self.tool_soundcheck(fix=True, genre=key_name))
 
         # -- mix ----------------------------------------------------------
         if mix:
@@ -1570,7 +1588,7 @@ class Toolbox:
         degrees: Any = "1-6-4-5",
         bars: float = 8,
         style: str = "rolling",
-        octave: int = 1,
+        octave: int = 2,
         drums_track: int | None = None,
         humanise: float = 0.2,
         name: str | None = None,
@@ -1765,7 +1783,7 @@ class Toolbox:
         velocity: int = 100,
         swing: float = 0.0,
         humanise: float = 0.0,
-        fill_last_bar: bool = True,
+        fill_last_bar: bool = False,
         vary: bool = True,
         name: str | None = None,
         seed: int | None = None,
@@ -3171,12 +3189,20 @@ class Toolbox:
             "vocal": "Vocal", "fx": "FX", "impact": "Impacts",
             "riser": "Risers", "perc": "Perc",
         }
+        # Idempotent: a placeholder that already exists is the placeholder.
+        # Without this every rebuild grew another Vocal and another FX.
+        present = {
+            str(t.get("name"))
+            for t in self.bridge.call("get_song").get("tracks", [])
+        }
         created = []
         seen: dict[str, int] = {}
         for role in wanted:
             seen[role] = seen.get(role, 0) + 1
             base = labels.get(role, role.title())
             suffix = f" {seen[role]}" if wanted.count(role) > 1 else ""
+            if f"{prefix}{base}{suffix}" in present:
+                continue
             created.append(
                 self.tool_create_placeholder_track(
                     name=f"{prefix}{base}{suffix}", role=role, kind="audio"
@@ -3259,11 +3285,45 @@ class Toolbox:
                 f"(synonyms accepted: {', '.join(sorted(arrangement.ROLE_ALIASES))})"
             )
         role = canonical
+
+        # A preference that cannot load is worse than none: it fails at build
+        # time and the role plays nothing. "x/y" sat in the user's config and
+        # silenced every lead for a day. Verify against the browser now, while
+        # there is a user present to hear about it.
+        warning = None
+        try:
+            found = self._browser_item(path)
+        except AbletonNotRunning:
+            found = ...
+            warning = ("could not verify against the browser (Ableton not "
+                       "reachable); saved unverified")
+        except AbletonError:
+            # The browser answered and the path is not in it. Unreachable is
+            # forgivable; nonexistent is exactly what this check is for.
+            found = None
+        if found is None:
+            raise ToolError(
+                f"{path!r} is not a loadable browser item -- find the real "
+                "path with search_devices, and check the spelling"
+            )
+
+        if path.startswith("Plugins/"):
+            warning = (
+                "this is a bare synth engine: it loads with its init patch, "
+                "which is a plain saw, not a sound. It will be used because "
+                "you asked -- but a preset from Sounds/, or the plugin saved "
+                "inside an Instrument Rack in your User Library, will sound "
+                "like a choice instead of a default."
+            )
+
         self.sounds.set_role(role, path)
         if favourite:
             self.sounds.add_favourite(path)
-        return {"role": role.lower(), "path": path,
-                "favourites": self.sounds.favourites()}
+        result = {"role": role.lower(), "path": path,
+                  "favourites": self.sounds.favourites()}
+        if warning:
+            result["warning"] = warning
+        return result
 
     def tool_forget_sound_preference(self, role: str) -> dict:
         """Drop a saved role preference, falling back to the stock device."""
@@ -3337,9 +3397,29 @@ class Toolbox:
             params["uri"] = uri
         if path:
             params["path"] = path
-        result = self.bridge.call("load_device", **params)
+        try:
+            result = dict(self.bridge.call("load_device", **params))
+        except AbletonError as exc:
+            # A saved preference that no longer loads must not leave the
+            # track silent -- that is how "x/y" muted every lead. Fall back
+            # to a designed preset for the role and say what happened.
+            if resolved_from and str(resolved_from).startswith("role:") and role:
+                fallback = self.tool_pick_sound(track_index=track_index,
+                                                role=role)
+                fallback["warning"] = (
+                    f"saved preference {path!r} failed to load ({exc}); "
+                    f"loaded {fallback.get('preset')!r} instead. "
+                    "Fix or forget the preference."
+                )
+                return fallback
+            raise
         result["resolved_from"] = resolved_from
         result["path"] = path
+        if path and path.startswith("Plugins/"):
+            result["warning"] = (
+                "bare synth engine loaded -- it plays its init patch. "
+                "A preset or a saved rack will sound like a choice."
+            )
         return result
 
     def tool_load_device(
@@ -3467,6 +3547,97 @@ class Toolbox:
         if getattr(self, "_sound_catalogue", None) is None:
             self._sound_catalogue = catalogue.Catalogue.load()
         return self._sound_catalogue
+
+    # Devices that shape sound but cannot make it. A MIDI track whose chain
+    # is only these is silent however many notes it holds -- and that exact
+    # state shipped: a built track's Lead and Melody carried an EQ Eight each
+    # and nothing else, so the two most important parts played nothing.
+    _EFFECT_ONLY = (
+        "eq", "compressor", "glue", "limiter", "reverb", "delay", "echo",
+        "utility", "saturator", "chorus", "phaser", "flanger", "gate",
+        "autofilter", "auto filter", "redux", "overdrive", "amp", "cabinet",
+        "multiband", "drum buss", "tuner", "spectrum",
+    )
+
+    def _makes_sound(self, devices: list[str]) -> bool:
+        """Does this device chain contain anything that generates audio?"""
+        for device in devices or []:
+            name = str(device).lower()
+            if not any(effect in name for effect in self._EFFECT_ONLY):
+                return True
+        return False
+
+    def tool_soundcheck(self, fix: bool = True, genre: str | None = None) -> dict:
+        """Verify every part that has notes can actually be heard.
+
+        The check nobody had: a track can hold perfect MIDI and produce
+        nothing -- no instrument, an effects-only chain, the fader at zero, or
+        muted. Each is invisible in the clip view and each makes the whole
+        track sound broken, because an arrangement with silent parts IS
+        broken, whatever the notes say.
+
+        With `fix` on (the default), silent MIDI tracks get an instrument
+        picked for their role and zeroed faders are raised to a sane level.
+        Mutes are reported but left alone -- a mute is a decision.
+        """
+        state = self.bridge.call("get_song")
+        silent, fixed, fine = [], [], []
+        for track in state.get("tracks", []):
+            index = int(track["index"])
+            has_notes = bool(track.get("clips"))                 or int(track.get("arrangement_clip_count", 0)) > 0
+            if not has_notes:
+                continue
+            problems = []
+            if track.get("is_midi") and not self._makes_sound(
+                track.get("devices", [])
+            ):
+                problems.append("no instrument -- the notes play nothing")
+            if float(track.get("volume", 0.85)) < 0.05:
+                problems.append("fader at zero")
+            if track.get("muted"):
+                problems.append("muted")
+
+            if not problems:
+                fine.append(track.get("name"))
+                continue
+
+            entry = {"track_index": index, "name": track.get("name"),
+                     "problems": problems}
+            if fix:
+                repairs = []
+                if "no instrument -- the notes play nothing" in problems:
+                    role = _role_from_name(track.get("name", "")) or "lead"
+                    try:
+                        loaded = self.tool_pick_sound(
+                            track_index=index, role=role, genre=genre
+                        )
+                        repairs.append(f"loaded {loaded.get('preset')}")
+                    except ToolError as exc:
+                        repairs.append(f"could not load an instrument: {exc}")
+                if "fader at zero" in problems:
+                    self.bridge.call("set_track_mixer", track_index=index,
+                                     volume=mixing.db_to_live(-12.0))
+                    repairs.append("fader raised to -12dB")
+                entry["repairs"] = repairs
+                fixed.append(entry)
+            else:
+                silent.append(entry)
+
+        report = {
+            "checked": len(fine) + len(silent) + len(fixed),
+            "ok": fine,
+            "silent": silent,
+            "fixed": fixed,
+            "summary": (
+                f"{len(fine)} track(s) sound, "
+                + (f"{len(fixed)} repaired" if fix else f"{len(silent)} SILENT")
+                + (": " + "; ".join(
+                    f"{e['name']}: {', '.join(e['problems'])}"
+                    for e in (fixed or silent))
+                   if (fixed or silent) else "")
+            ),
+        }
+        return report
 
     def tool_scan_sounds(self, force: bool = False) -> dict:
         """Walk the Live browser and record everything loadable.

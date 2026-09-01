@@ -70,7 +70,11 @@ ROLE_INTENSITY: dict[str, float] = {
 # the single most common ensemble fault: lead, melody, hook and arp were all
 # written around C5 and fought each other for the same air.
 REGISTER_BANDS: dict[str, tuple[int, int]] = {
-    "sub": (24, 43), "808": (24, 43), "bass": (28, 52),
+    # The bass lives an octave above the sub. Octave 1 put trance bass
+    # fundamentals at 27-55Hz: crowding the kick, invisible on small
+    # speakers, and measured at 36% of the whole mix's energy -- "truly
+    # awful" begins down here, not in the melody.
+    "sub": (24, 43), "808": (24, 43), "bass": (33, 57),
     "guitar": (45, 76), "piano": (48, 84), "organ": (48, 79),
     "chords": (52, 76), "pad": (48, 79), "strings": (48, 84),
     "choir": (55, 79), "harp": (55, 91), "mallet": (72, 96),

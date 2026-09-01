@@ -66,8 +66,11 @@ DEFAULT_ROLES: dict[str, str] = {
 class SoundPreferences:
     """Reads and writes the user's role -> device mapping."""
 
-    def __init__(self, path: Path = CONFIG_PATH) -> None:
-        self.path = path
+    def __init__(self, path: Path | None = None) -> None:
+        # Resolved at construction, not at import: a default argument binds
+        # the module-load value forever, which is how tests that patched
+        # CONFIG_PATH still wrote junk into the user's real preferences.
+        self.path = path if path is not None else CONFIG_PATH
         self._data: dict[str, Any] | None = None
 
     # -- persistence --------------------------------------------------

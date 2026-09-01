@@ -1063,3 +1063,72 @@ def test_tool_enum_tables_have_no_duplicate_keys():
                 if isinstance(k, ast.Constant) and isinstance(k.value, str)]
         duplicates = {k for k in keys if keys.count(k) > 1}
         assert not duplicates, f"duplicate keys in a schemas dict: {duplicates}"
+
+
+def test_soundcheck_finds_and_fixes_silent_tracks(box):
+    """A track with notes and no instrument is broken, whatever the notes say."""
+    box.call("create_track", {"name": "Lead", "role": "lead"})
+    _place(box, 0, 0, [{"pitch": 72, "start": 0.0, "duration": 1.0,
+                        "velocity": 100}], bars=4)
+    assert box.bridge.tracks[0]["devices"] == []
+
+    report = box.call("soundcheck", {"fix": True})
+    assert report["fixed"], report
+    assert box.bridge.tracks[0]["devices"], "no instrument was loaded"
+
+    # A track that already sounds is left alone.
+    clean = box.call("soundcheck", {"fix": True})
+    assert not clean["fixed"] and not clean["silent"], clean
+
+
+def test_soundcheck_treats_effects_only_as_silent(box):
+    box.call("create_track", {"name": "Melody", "role": "melody"})
+    _place(box, 0, 0, [{"pitch": 72, "start": 0.0, "duration": 1.0,
+                        "velocity": 100}], bars=4)
+    box.bridge.tracks[0]["devices"] = ["EQ Eight", "Compressor"]
+
+    report = box.call("soundcheck", {"fix": False})
+    assert report["silent"], report
+    assert "no instrument" in report["silent"][0]["problems"][0]
+
+
+def test_sound_preferences_reject_junk_paths(box):
+    """"x/y" must never reach the config again."""
+    with pytest.raises(ToolError, match="not a loadable browser item"):
+        box.call("set_sound_preference", {"role": "lead", "path": "x/y"})
+    assert box.sounds.for_role("lead") != "x/y"
+
+
+def test_bare_plugin_preference_warns(box):
+    box.bridge.browser_items = getattr(box.bridge, "browser_items", None)
+    # The fake browser will not know this path; patch _browser_item to accept.
+    box._browser_item = lambda path: {"name": path.rsplit("/", 1)[-1],
+                                      "uri": "u", "is_loadable": True}
+    result = box.call("set_sound_preference", {
+        "role": "bass", "path": "Plugins/VST3/Xfer Records/Serum 2",
+    })
+    assert "init patch" in result.get("warning", ""), result
+
+
+def test_failed_role_preference_falls_back_not_silent(box):
+    """The preference fails; the track still gets an instrument, loudly."""
+    box._browser_item = lambda path: {"name": "junk", "uri": "u",
+                                      "is_loadable": True}
+    box.call("create_track", {"name": "Lead", "role": "lead"})
+    box.sounds.set_role("lead", "Nonsense/Not A Device")
+
+    result = box.call("load_sound", {"track_index": 0, "role": "lead"})
+    assert "failed to load" in result.get("warning", ""), result
+    assert box.bridge.tracks[0]["devices"], "fell back to nothing"
+
+
+def test_build_track_twice_does_not_double_the_band(box):
+    """A rebuild reuses its own tracks; it does not create a second band."""
+    box.call("build_track", {"genre": "trance", "key": "A",
+                             "duration_seconds": 240, "seed": 1})
+    count = len(box.bridge.tracks)
+    box.call("build_track", {"genre": "trance", "key": "A",
+                             "duration_seconds": 240, "seed": 2})
+    assert len(box.bridge.tracks) == count, (
+        f"{count} tracks became {len(box.bridge.tracks)}"
+    )

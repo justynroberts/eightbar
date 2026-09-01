@@ -483,8 +483,14 @@ def test_crowding_is_still_reported():
     )
 
 
-def test_drums_mark_the_phrase():
-    """Eight identical bars is the loudest thing wrong with a programmed loop."""
+def test_drums_mark_the_phrase_once_and_subtly():
+    """One small gesture at the end of the eight-bar phrase -- and no more.
+
+    The first version stacked an open hat, a clap stutter, ghost notes and
+    extra perc every four bars. The user's correction is the specification:
+    "some small variation at the end of bar 8 is enough. Doesn't need big
+    rolls, be more subtle." Dance drums earn their hypnosis by NOT varying.
+    """
     from ableton_ai import generators
 
     notes = generators.generate_drums(pattern="tech_house", bars=8, seed=1)
@@ -493,8 +499,13 @@ def test_drums_mark_the_phrase():
         bars.setdefault(int(note["start"] // 4), []).append(
             (round(note["start"] % 4, 2), note["pitch"])
         )
-    distinct = len({tuple(sorted(v)) for v in bars.values()})
-    assert distinct >= 4, f"only {distinct} distinct bars in 8"
+    signatures = [tuple(sorted(v)) for _, v in sorted(bars.items())]
+
+    assert len(set(signatures[:7])) == 1, "bars 1-7 must be identical"
+    assert signatures[7] != signatures[0], "bar 8 must mark the phrase"
+    # Subtle: the marked bar differs by a couple of notes, not a fill.
+    delta = len(set(signatures[7]) ^ set(signatures[0]))
+    assert delta <= 4, f"bar 8 differs by {delta} notes -- that is a roll"
 
 
 # ------------------------------------------------------------- composition
