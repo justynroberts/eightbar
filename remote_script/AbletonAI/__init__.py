@@ -233,6 +233,7 @@ class AbletonAI(ControlSurface):
             "fire_scene": self._fire_scene,
             "create_scene": self._create_scene,
             "start_playback": self._start_playback,
+            "back_to_arrangement": self._back_to_arrangement,
             "stop_playback": self._stop_playback,
             "set_view": self._set_view,
             "browse": self._browse,
@@ -1417,6 +1418,31 @@ class AbletonAI(ControlSurface):
         if params.get("name"):
             song.scenes[new_index].name = params["name"]
         return {"scene_index": new_index}
+
+    def _back_to_arrangement(self, params):
+        """Return every track to playing the arrangement.
+
+        One fired scene takes the whole set into session mode, and from then
+        on arrangement playback rolls silently under whatever clips loop --
+        which is how a full arrangement metered as four looping session
+        tracks and six silent ones. Live's own orange "Back to Arrangement"
+        button is the fix, and this is that button.
+        """
+        song = self.song()
+        if params.get("stop_clips", True):
+            try:
+                song.stop_all_clips()
+            except Exception as exc:
+                self._warn("stop_all_clips", exc)
+        try:
+            song.back_to_arrangement = 1
+        except Exception:
+            # Older API exposes it as a trigger rather than a property.
+            try:
+                song.trigger_back_to_arrangement()
+            except Exception as exc:
+                self._warn("back_to_arrangement", exc)
+        return {"back_to_arrangement": True}
 
     def _start_playback(self, params):
         song = self.song()

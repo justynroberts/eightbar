@@ -335,6 +335,11 @@ class FakeBridge:
         track.setdefault("params", {}).setdefault(device_index, {})[name] = float(value)
         return {"name": name, "value": float(value), "min": 0.0, "max": 1.0}
 
+    def _back_to_arrangement(self, stop_clips: bool = True) -> dict:
+        self.back_to_arrangement_calls = getattr(
+            self, "back_to_arrangement_calls", 0) + 1
+        return {"back_to_arrangement": True}
+
     def _get_meters(self) -> dict:
         return {
             "is_playing": self.playing,

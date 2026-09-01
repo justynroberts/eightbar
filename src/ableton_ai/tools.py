@@ -4369,6 +4369,20 @@ class Toolbox:
 
         return {"filtered": done, "skipped": skipped}
 
+    def _ensure_arrangement_playback(self) -> None:
+        """Take Live out of session mode before playing the arrangement.
+
+        Skipped silently when the loaded remote script predates the command --
+        an old script should degrade to old behaviour, not to an error.
+        """
+        try:
+            if "back_to_arrangement" in self.bridge.call("ping").get(
+                "commands", []
+            ):
+                self.bridge.call("back_to_arrangement")
+        except (AbletonError, AbletonNotRunning):
+            pass
+
     def tool_capture_audio(
         self,
         bars: float = 8,
@@ -4387,6 +4401,7 @@ class Toolbox:
         Creates a dedicated capture track if one is not given. Recording runs
         in real time, so eight bars takes eight bars.
         """
+        self._ensure_arrangement_playback()
         import time
 
         state = self.bridge.call("get_song")
