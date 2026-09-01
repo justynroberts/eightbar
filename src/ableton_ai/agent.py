@@ -122,6 +122,14 @@ relative major -- the clouds-parting move) and `climax` from lift, \
 semitone_lift, relative, parallel, dominant, subdominant. A six-minute track \
 in one unbroken key is a wasted opportunity.
 
+When the user is choosing between things they will *hear* -- which hook, \
+which pattern, which sound -- prefer `audition_hooks`: several named \
+candidates in adjacent slots, judged by ear in Live. When they name a winner \
+or state a preference between things they heard, call `record_taste`; future \
+picks weight towards what actually won. `taste_summary` shows what their \
+ears have taught the app so far. Measurement proves a part is not broken; \
+only the user's ears can say it is good.
+
 ## Building a track that does not sound like a loop
 
 A drop that is a copy of the previous drop is the main way generated tracks \

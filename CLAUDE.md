@@ -417,3 +417,25 @@ DNA — memorability beats relatedness on exactly that one part.
 semitone_lift, relative, parallel, dominant, subdominant); `plan_harmony`
 takes `breakdown=` and `climax=` so a breakdown can go to the relative major
 and the last drop can take any of them.
+
+## The ears in the loop: audition and taste
+
+`audition_hooks` writes named candidates into adjacent session slots ("A:
+falling_fifth", "B: penta_loop"…) for the user to fire and judge in Live;
+`record_taste(kind, choice, context)` stores the winner and `create_hook_clip`
+consults the tally — a transparent per-style win count, not a model: wins
+weight the draw, every option keeps a baseline chance, `forget_taste` undoes.
+This is the only path by which the user's actual ears reach the generators.
+
+`perform.pocket` sits roles against the grid (bass/snare behind, hats pushing,
+kick anchored, ±0.01–0.03 beats — felt, not heard); `critique.against_references`
+flags parts wildly denser or sparser than the user's own corpus.
+
+Modern rhythm vocabulary: tresillo (3-3-2), dembow, two_step, log_drum cells in
+`motif`/`melody`; reggaeton, afrobeats, amapiano, two_step kits in
+`DRUM_PATTERNS`; tresillo_fall and sparse_bounce hook patterns.
+
+**Dict-literal gotcha, hit twice in one day:** a duplicate key in ENUMS /
+TOOL_ENUMS / PARAM_DOCS is legal Python and silently swallows the earlier
+entry — the hook patterns vanished from the schema that way.
+`test_tool_enum_tables_have_no_duplicate_keys` now guards the whole class.

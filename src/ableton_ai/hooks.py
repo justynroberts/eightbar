@@ -111,6 +111,22 @@ HOOK_PATTERNS: dict[str, dict[str, Any]] = {
         "rhythm": "X..x....X..x....",
         "feel": "unresolved on purpose",
     },
+    # The tresillo hook: 3-3-2 under a three-note fall. The rhythm that
+    # carried dancehall into a decade of pop -- instantly current.
+    "tresillo_fall": {
+        "styles": ("pop", "dancehall", "reggaeton", "modern", "tropical"),
+        "degrees": (5, 4, 1, 5, 4, 1),
+        "rhythm": "X..x..X.x..x..X.",
+        "feel": "modern pop, rolling 3-3-2",
+    },
+    # Amapiano-ish: long silences, notes landing off the count, low energy
+    # carried entirely by placement.
+    "sparse_bounce": {
+        "styles": ("amapiano", "afro", "deep_house", "modern"),
+        "degrees": (1, 5, 6, 5),
+        "rhythm": "X....x..x.....x.",
+        "feel": "spacious, off-grid bounce",
+    },
     # Call on 1-4, response on 5-1: the oldest question/answer there is.
     "call_answer": {
         "styles": ("house", "garage", "pop", "funk"),

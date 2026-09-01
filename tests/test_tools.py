@@ -1041,3 +1041,25 @@ def test_arrange_existing_refuses_an_unreadable_set(box):
                         "velocity": 100}], bars=4)
     with pytest.raises(ToolError, match="Rename the tracks"):
         box.call("arrange_existing", {})
+
+
+def test_tool_enum_tables_have_no_duplicate_keys():
+    """A duplicate key in a dict literal is legal Python and a silent loss.
+
+    TOOL_ENUMS carried "create_hook_clip" twice; the second literal swallowed
+    the first and the hook patterns vanished from the schema, so the model
+    was told its own vocabulary was invalid.
+    """
+    import ast
+    import inspect
+
+    from ableton_ai import schemas
+
+    tree = ast.parse(inspect.getsource(schemas))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        keys = [k.value for k in node.keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+        duplicates = {k for k in keys if keys.count(k) > 1}
+        assert not duplicates, f"duplicate keys in a schemas dict: {duplicates}"

@@ -19,13 +19,6 @@ from .tools import Toolbox
 
 # Prose for parameters whose meaning isn't obvious from the name alone.
 PARAM_DOCS: dict[str, str] = {
-    "degrees": (
-        "The chord progression, as scale degrees (\"1-6-4-5\" or [1, 6, 4, 5]) "
-        "or the name of a stock progression. Pass \"learned\" to walk the "
-        "chord-to-chord moves of the references in the corpus, which is how a "
-        "generated progression comes out sounding like the material that was "
-        "fed in rather than like a preset. Ignored when reference_track is set."
-    ),
     "reference_track": (
         "Index of a track whose clip already holds the harmony this part should "
         "follow. When set, the key, scale, chord qualities and harmonic rhythm "
@@ -45,7 +38,10 @@ PARAM_DOCS: dict[str, str] = {
     "degrees": (
         "Chord progression as scale degrees: '1-6-4-5', a list like [1,6,4,5], "
         "roman numerals 'i-VI-IV-V', or a named progression "
-        f"({', '.join(sorted(theory.PROGRESSIONS))})."
+        f"({', '.join(sorted(theory.PROGRESSIONS))}). "
+        "Pass 'learned' to walk the chord-to-chord moves of the corpus "
+        "references, so the progression sounds like the material fed in. "
+        "Ignored when reference_track is set."
     ),
     "bars": "Clip length in bars (4 beats each).",
     "octave": "Octave for the generated material. 3 is around middle C.",
@@ -202,9 +198,6 @@ ITEM_SCHEMAS: dict[str, dict[str, Any]] = {
 TOOL_ENUMS: dict[str, dict[str, list[str]]] = {
     "create_varied_chords": {"rhythm": _vocab(generators.CHORD_COMPS)},
     "create_chord_clip": {"rhythm": _vocab(generators.RHYTHM_PATTERNS)},
-    "create_hook_clip": {
-        "pattern": sorted(hooks.HOOK_PATTERNS) + ["motif"],
-    },
     "create_styled_bass": {
         "style": _vocab(basslines.STYLES, basslines.ALIASES, ["learned"])
     },
@@ -218,7 +211,12 @@ TOOL_ENUMS: dict[str, dict[str, list[str]]] = {
         "variation": _vocab(harmony.RECIPES),
     },
     "create_arpeggio_clip": {"style": list(generators.ARP_STYLES)},
-    "create_hook_clip": {"rhythm": _vocab(generators.RHYTHM_PATTERNS)},
+    # One entry per tool: a duplicate key here is silently swallowed by the
+    # later literal, which is how the hook patterns vanished from the schema.
+    "create_hook_clip": {
+        "rhythm": _vocab(generators.RHYTHM_PATTERNS),
+        "pattern": sorted(hooks.HOOK_PATTERNS) + ["motif"],
+    },
     "add_compression": {"style": _vocab(mixing.COMPRESSION)},
     "create_drum_fill": {"style": ["snare", "stutter", "toms"]},
     "design_sound": {"patch": _vocab(presets.RECIPES, presets.ALIASES)},

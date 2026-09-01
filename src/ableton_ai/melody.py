@@ -66,7 +66,11 @@ RHYTHMS: dict[str, tuple[int, ...]] = {
     "held":         (0, 12, 16, 28),
     "trance":       (0, 2, 3, 6, 8, 16, 18, 19, 22, 24),
     "answer":       (0, 4, 6, 16, 20, 26),
-    "vocal":        (0, 3, 4, 10, 16, 19, 20, 24),
+    "vocal":        (0, 3, 4, 10, 16, 19, 20, 24),    # The modern dance vocabulary -- see motif.RHYTHM_CELLS for provenance.
+    "tresillo":  (0, 3, 6, 8, 11, 14),
+    "dembow":    (0, 3, 4, 6, 8, 11, 12, 14),
+    "two_step":  (0, 6, 10, 14),
+    "log_drum":  (0, 5, 8, 11, 14),
 }
 
 # How a phrase ends. The antecedent leaves the ear waiting; the consequent

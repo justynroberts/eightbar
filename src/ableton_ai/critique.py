@@ -306,11 +306,60 @@ def check_ensemble(parts: Sequence[Part]) -> list[Finding]:
     return found
 
 
-def critique(parts: Iterable[Part]) -> dict:
+def against_references(parts: Sequence[Part], library) -> list[Finding]:
+    """Where the generated parts differ wildly from the learned references.
+
+    The corpus is the user's own taste, measured. A generated bass three
+    times denser than every bass they fed in is not wrong in theory -- it is
+    unlike what they like, which for this purpose is the same thing. Only
+    gross mismatches are flagged, and only gently: references inform, they
+    do not legislate.
+    """
+    found: list[Finding] = []
+    refs = getattr(library, "references", {})
+    if not refs:
+        return found
+
+    by_role: dict[str, list[tuple[float, int]]] = {}
+    for reference in refs.values():
+        bars = reference.bars or 8.0
+        for role, part in (reference.parts or {}).items():
+            count = int(part.get("notes", 0))
+            span = part.get("range") or [60, 60]
+            if count:
+                by_role.setdefault(role, []).append(
+                    (count / bars, int(span[1]) - int(span[0]))
+                )
+
+    for part in parts:
+        role = "melody" if part.role in ("lead", "hook") else part.role
+        stats = by_role.get(part.role) or by_role.get(role)
+        if not stats or not part.notes or part.bars <= 0:
+            continue
+        densities = sorted(d for d, _r in stats)
+        median_density = densities[len(densities) // 2]
+        density = len(part.notes) / part.bars
+        if median_density > 0 and (
+            density > median_density * 2.5 or density < median_density * 0.3
+        ):
+            found.append(Finding(
+                "low", part.name,
+                "unlike your references",
+                f"{density:.1f} notes/bar vs their median "
+                f"{median_density:.1f} for {role}",
+                "match the density of the material you fed in, or feed in "
+                "material that sounds like this",
+            ))
+    return found
+
+
+def critique(parts: Iterable[Part], library=None) -> dict:
     """Every measurable fault, worst first, with a score out of 100."""
     parts = list(parts)
     findings = [f for p in parts for f in check_part(p)]
     findings += check_ensemble(parts)
+    if library is not None:
+        findings += against_references(parts, library)
 
     weight = {"high": 12, "medium": 5, "low": 2}
     penalty = sum(weight[f.severity] for f in findings)

@@ -912,3 +912,112 @@ def test_breakdowns_and_climaxes_can_modulate():
     for how in composing.MODULATIONS:
         key, scale = composing.modulate("A", "minor", how)
         assert key in __import__("ableton_ai.theory", fromlist=["x"]).NOTE_NAMES
+
+
+# ------------------------------------------------- ears, pocket, references
+
+def test_taste_weights_the_draw_without_closing_it(tmp_path):
+    """Three wins pick more often; the loser stays reachable."""
+    from ableton_ai.taste import Taste
+
+    store = Taste(path=tmp_path / "taste.json")
+    for _ in range(6):
+        store.record("hook_pattern", "penta_loop", "house")
+    picks = {store.choose("hook_pattern", ["penta_loop", "falling_fifth"],
+                          "house", seed=s) for s in range(60)}
+    counts = [store.choose("hook_pattern", ["penta_loop", "falling_fifth"],
+                           "house", seed=s) for s in range(200)]
+    assert counts.count("penta_loop") > counts.count("falling_fifth") * 2
+    assert "falling_fifth" in picks, "taste must narrow the draw, not close it"
+
+    # Context-specific wins outrank general ones; forgetting works.
+    store.record("hook_pattern", "falling_fifth", "any")
+    assert store.weights("hook_pattern", "house")["penta_loop"] == 12
+    store.forget("hook_pattern", "penta_loop", "house")
+    assert "penta_loop" not in store.weights("hook_pattern", "house")
+
+
+def test_audition_lines_up_named_candidates(box, tmp_path):
+    from ableton_ai import taste as taste_mod
+
+    box._taste_store = taste_mod.Taste(path=tmp_path / "taste.json")
+    box.call("create_track", {"name": "Hook", "role": "hook"})
+    result = box.call("audition_hooks", {
+        "track_index": 0, "key": "A", "scale": "minor",
+        "degrees": [1, 6, 4, 5], "count": 3, "seed": 1,
+    })
+    assert len(result["auditions"]) == 3
+    clips = box.bridge.tracks[0]["clips"]
+    assert {0, 1, 2} <= set(clips)
+    assert clips[0]["name"].startswith("A: ")
+    patterns = {a["pattern"] for a in result["auditions"]}
+    assert len(patterns) == 3, "candidates must differ"
+
+
+def test_pocket_sits_roles_against_the_grid():
+    """The bass sits behind the kick; the hats push. Bar one stays anchored."""
+    from ableton_ai import perform
+
+    notes = [{"pitch": 40, "start": float(b), "duration": 0.5, "velocity": 100}
+             for b in range(8)]
+    bass = perform.pocket(notes, "bass")
+    hats = perform.pocket(notes, "hat")
+    kick = perform.pocket(notes, "kick")
+
+    assert bass[0]["start"] == 0.0, "the first downbeat is the anchor"
+    assert all(b["start"] > k["start"] for b, k in zip(bass[1:], kick[1:]))
+    assert all(h["start"] < k["start"] for h, k in zip(hats[1:], kick[1:]))
+    # Felt, not heard: within 0.03 beats.
+    assert all(abs(b["start"] - n["start"]) <= 0.03
+               for b, n in zip(bass, notes))
+
+
+def test_critique_can_measure_against_the_references(tmp_path):
+    """A part wildly denser than everything the user fed in gets flagged."""
+    from ableton_ai import corpus as c
+    from ableton_ai import critique
+
+    library = c.Library(path=tmp_path / "corpus.json")
+    library.add(c.Reference(
+        name="r1", path="/r1.mid", tempo=124, bars=8.0,
+        key_root="A", key_scale="minor", key_confidence=0.9,
+        progression=[1, 6, 4, 5],
+        parts={"bass": {"notes": 16, "range": [36, 48]}},
+    ))
+
+    dense = critique.Part("Bass", "bass", [
+        {"pitch": 40, "start": i * 0.25, "duration": 0.2, "velocity": 100}
+        for i in range(64)
+    ], 8)
+    findings = critique.against_references([dense], library)
+    assert findings and "unlike your references" in findings[0].problem
+
+    matching = critique.Part("Bass", "bass", [
+        {"pitch": 40, "start": i * 0.5, "duration": 0.4, "velocity": 100}
+        for i in range(16)
+    ], 8)
+    assert critique.against_references([matching], library) == []
+
+
+def test_modern_rhythms_are_in_every_vocabulary(box):
+    """Tresillo, dembow, two-step, amapiano: the current decade, requestable."""
+    from ableton_ai import generators, hooks, motif
+
+    assert motif.RHYTHM_CELLS["tresillo"] == (0, 3, 6, 8, 11, 14)
+    for kit in ("reggaeton", "afrobeats", "amapiano", "two_step"):
+        assert kit in generators.DRUM_PATTERNS, kit
+    assert generators.normalise_pattern("dembow") == "reggaeton"
+    assert "tresillo_fall" in hooks.HOOK_PATTERNS
+
+    box.call("create_track", {"name": "Drums", "role": "drums"})
+    result = box.call("create_drum_clip", {
+        "track_index": 0, "clip_index": 0, "pattern": "amapiano", "bars": 2,
+    })
+    assert result.get("summary")
+
+    box.call("create_track", {"name": "Hook", "role": "hook"})
+    result = box.call("create_hook_clip", {
+        "track_index": 1, "clip_index": 0, "key": "A", "scale": "minor",
+        "degrees": [1, 6, 4, 5], "pattern": "tresillo_fall", "bars": 4,
+    })
+    assert result["pattern"] == "tresillo_fall"

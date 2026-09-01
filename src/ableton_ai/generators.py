@@ -120,6 +120,24 @@ DRUM_PATTERNS.update({
     "ride":           {"ride":       "..x...x...x...x."},
     "percussion":     {"perc":       "..x..x..x..x.x..",
                        "rim":        "....x.......x..."},
+    # Dembow: reggaeton's spine -- and via dancehall, the groove under a
+    # remarkable share of modern pop.
+    "reggaeton":      {"kick":       "x...x...x...x...",
+                       "snare":      "...x..x....x..x.",
+                       "closed_hat": "x.x.x.x.x.x.x.x."},
+    # Afrobeats: kick off the grid, rim carrying the tresillo.
+    "afrobeats":      {"kick":       "x..x..x...x..x..",
+                       "rim":        "..x..x.x..x..x..",
+                       "shaker":     "x.x.x.x.x.x.x.x."},
+    # Amapiano: the log drum is the melody-adjacent bass voice; here the
+    # kit is sparse kick, late claps and running shaker under it.
+    "amapiano":       {"kick":       "x......x..x.....",
+                       "clap":       "....x.......x..x",
+                       "shaker":     "x.xxx.xxx.xxx.xx"},
+    # UK garage 2-step: the kick skips beat three entirely.
+    "two_step":       {"kick":       "x.....x...x.....",
+                       "snare":      "....x.......x...",
+                       "closed_hat": "x.x.x.xxx.x.x.xx"},
     "half_time":      {"kick":       "x.......x.......",
                        "clap":       "........x.......",
                        "closed_hat": "..x...x...x...x."},
@@ -142,6 +160,10 @@ PATTERN_ALIASES: dict[str, str] = {
     "perc": "percussion", "percs": "percussion", "shakers": "shaker",
     "halftime": "half_time", "garage": "broken", "ukg": "broken",
     "twostep": "broken", "two_step": "broken",
+    "dembow": "reggaeton", "reggae": "reggaeton", "dancehall": "reggaeton",
+    "latin": "reggaeton", "afro": "afrobeats", "afrobeat": "afrobeats",
+    "piano_house": "amapiano", "garage_beat": "two_step",
+    "ukg_beat": "two_step",
     "drum_and_bass": "dnb", "drum_n_bass": "dnb", "jungle": "dnb",
     "hiphop": "hip_hop", "boom_bap": "hip_hop", "trapstep": "trap",
     "deephouse": "deep_house", "techhouse": "tech_house",

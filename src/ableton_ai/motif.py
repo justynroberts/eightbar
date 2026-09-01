@@ -56,6 +56,21 @@ RHYTHM_CELLS: dict[str, tuple[int, ...]] = {
     "syncopated":       (0, 3, 8, 11),
     "driving":          (0, 2, 3, 6, 8, 10, 11, 14),
     "sparse":           (0, 8),
+    # -- the modern ones. Sixteenth positions in a bar of 16. --------------
+    # The tresillo, 3-3-2: dancehall into reggaeton into half the pop and
+    # EDM of the last decade. If one rhythm defines "modern", it is this.
+    "tresillo":         (0, 3, 6, 8, 11, 14),
+    # Dembow: the tresillo with the backbeat answered -- reggaeton's engine.
+    "dembow":           (0, 3, 4, 6, 8, 11, 12, 14),
+    # 2-step: the kick pattern of UK garage as a melodic cell, beats 1 and
+    # the and-of-2, skipping 3 -- the lopsided bounce.
+    "two_step":         (0, 6, 10, 14),
+    # Amapiano's log-drum placement: sparse, syncopated, ends pushing.
+    "log_drum":         (0, 5, 8, 11, 14),
+    # Half-time: the note on 1 and the and-of-3, trap and future bass.
+    "half_time_cell":   (0, 10),
+    # The festival chant: even quarters with a pushed last -- big room stabs.
+    "four_push":        (0, 4, 8, 11),
 }
 
 # Melodic shapes as scale-step offsets from the anchor.

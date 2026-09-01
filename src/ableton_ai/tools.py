@@ -21,7 +21,7 @@ from typing import Any, Callable
 from . import (
     arrangement, basslines, catalogue, composing, corpus, critique, generators,
     groove, harmony, hooks, leads, melody, mixing, motif, perform, presets,
-    theory, variations, voicings,
+    taste, theory, variations, voicings,
 )
 
 try:  # numpy and friends are optional; everything else works without them
@@ -1159,6 +1159,106 @@ class Toolbox:
             "summary": (
                 f"{key} {scale}, degrees {degrees or 'none found'}, "
                 f"from {source['track']!r} across {len(found)} clip(s)"
+            ),
+        }
+
+    def _taste(self) -> taste.Taste:
+        if getattr(self, "_taste_store", None) is None:
+            self._taste_store = taste.Taste()
+        return self._taste_store
+
+    def tool_audition_hooks(
+        self,
+        track_index: int,
+        key: str = "A",
+        scale: str = "minor",
+        degrees: Any = "1-6-4-5",
+        bars: float = 8,
+        count: int = 4,
+        hook_style: str | None = None,
+        start_slot: int = 0,
+        octave: int = 5,
+        seed: int | None = None,
+    ) -> dict:
+        """Write several hook candidates side by side, for the user to judge.
+
+        Measurement can prove a part is not broken; only listening can say it
+        is good. This lines up `count` different patterns in consecutive
+        session slots, named after their pattern, so the user can fire each
+        in Live and compare. When they name a winner, record it with
+        `record_taste` -- future picks weight towards what has actually won.
+
+        Candidates are ordered by the user's recorded taste for the style,
+        so the likeliest winners audition first.
+        """
+        chords, _bpc = self._progression(key, scale, degrees, bars, 3, "triad")
+        options = sorted(hooks.catalog(hook_style))
+        store = self._taste()
+        wins = store.weights("hook_pattern", hook_style or "any")
+        options.sort(key=lambda name: -wins.get(name, 0))
+        chosen = options[: max(1, int(count))]
+
+        written = []
+        for offset, pattern in enumerate(chosen):
+            notes = hooks.render_hook(
+                key, scale, chords, bars=bars, pattern=pattern,
+                octave=octave, seed=seed,
+            )
+            slot = start_slot + offset
+            self._write_clip(
+                track_index, slot, bars, notes,
+                name=f"{chr(65 + offset)}: {pattern}", role="hook",
+            )
+            written.append({"slot": slot, "pattern": pattern,
+                            "notes": len(notes),
+                            "wins_so_far": wins.get(pattern, 0)})
+        return {
+            "auditions": written,
+            "summary": (
+                f"{len(written)} hook(s) in slots "
+                f"{start_slot}-{start_slot + len(written) - 1}: "
+                + ", ".join(w["pattern"] for w in written)
+                + ". Fire each in Live; record the winner with record_taste."
+            ),
+        }
+
+    def tool_record_taste(
+        self, kind: str, choice: str, context: str = "any"
+    ) -> dict:
+        """Record that the user preferred one option, so future picks learn.
+
+        `kind` is what was being chosen ("hook_pattern", "drum_pattern",
+        "progression", "bass_style"), `choice` the winner, `context` a style
+        or genre word. A tally, not a model: three wins pick three times as
+        often, every option keeps a baseline chance, and forget_taste undoes
+        anything. This is the only place the user's actual ears reach the
+        generators -- use it whenever they express a preference between
+        things they heard.
+        """
+        result = self._taste().record(kind, choice, context)
+        result["summary"] = (
+            f"noted: {choice} for {kind}"
+            + (f" in {context}" if context != "any" else "")
+            + f" (tally {result['tally']})"
+        )
+        return result
+
+    def tool_forget_taste(
+        self, kind: str, choice: str | None = None, context: str = "any"
+    ) -> dict:
+        """Remove a recorded preference, or clear a whole kind/context."""
+        return self._taste().forget(kind, choice, context)
+
+    def tool_taste_summary(self) -> dict:
+        """Everything the user's ears have taught this app so far."""
+        summary = self._taste().summary()
+        return {
+            "taste": summary,
+            "summary": (
+                "nothing recorded yet -- audition_hooks then record_taste"
+                if not summary else
+                f"{sum(len(c) for k in summary.values() for c in k.values())} "
+                f"preference(s) across {len(summary)} kind(s)"
             ),
         }
 
@@ -2814,7 +2914,10 @@ class Toolbox:
             raise ToolError(
                 f"no MIDI clip in slot {clip_index} has any notes to judge"
             )
-        return critique.critique(parts)
+        library = self._library()
+        return critique.critique(
+            parts, library=library if library.references else None
+        )
 
     def tool_clear_arrangement(self, track_indices: list[int] | None = None) -> dict:
         """Delete arrangement-timeline clips, on the given tracks or all of them."""
@@ -3014,7 +3117,13 @@ class Toolbox:
             )
             chosen = "motif"
         else:
-            chosen = pattern or hooks.pattern_for(hook_style, seed)
+            if pattern:
+                chosen = pattern
+            else:
+                options = sorted(hooks.catalog(hook_style))
+                chosen = self._taste().choose(
+                    "hook_pattern", options, hook_style or "any", seed
+                )
             notes = hooks.render_hook(
                 key, scale, chords, bars=bars, pattern=chosen,
                 octave=octave, velocity=velocity, seed=seed,

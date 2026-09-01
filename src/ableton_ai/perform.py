@@ -86,6 +86,37 @@ REGISTER_BANDS: dict[str, tuple[int, int]] = {
 }
 
 
+# Where each role sits against the grid, in beats. A real rhythm section is
+# not aligned: the bass and snare sit fractionally behind the kick (the
+# pocket), hats push fractionally ahead (the drive), pads breathe late. At
+# 125bpm, 0.02 beats is about 10ms -- felt, not heard as an offset.
+ROLE_POCKET: dict[str, float] = {
+    "bass": 0.018, "sub": 0.02, "808": 0.02,
+    "snare": 0.012, "clap": 0.012,
+    "hat": -0.012, "perc": -0.008,
+    "chords": 0.01, "pad": 0.025, "strings": 0.03, "choir": 0.03,
+    "piano": 0.008, "guitar": 0.012,
+    "kick": 0.0, "drums": 0.0,          # the anchors stay on the grid
+    "lead": 0.006, "melody": 0.008, "hook": 0.0, "arp": -0.006,
+}
+
+
+def pocket(notes: Sequence[Note], role: str) -> list[Note]:
+    """Sit the part where its role sits: behind the kick, or pushing it."""
+    shift = ROLE_POCKET.get(role, 0.0)
+    if not notes or shift == 0.0:
+        return list(notes)
+    out = []
+    for note in notes:
+        copy = dict(note)
+        # The very first downbeat stays anchored -- everything is relative
+        # to something, and bar one beat one is the something.
+        if float(note["start"]) > 0:
+            copy["start"] = round(max(0.0, float(note["start"]) + shift), 4)
+        out.append(copy)
+    return out
+
+
 def _curve_for(role: str) -> tuple[int, ...]:
     return ACCENT_CURVES[ROLE_CURVES.get(role, "straight")]
 
@@ -344,4 +375,5 @@ def perform(
     played = articulate(played, role)
     if role in ("chords", "pad", "strings", "choir", "organ", "piano", "guitar"):
         played = spread_voices(played, seed=seed)
+    played = pocket(played, role)
     return played
