@@ -3408,10 +3408,12 @@ class Toolbox:
     def tool_set_sound_preference(
         self, role: str, path: str, favourite: bool = True
     ) -> dict:
-        """Remember which instrument to use for a role, e.g. bass -> Serum 2.
+        """Remember which instrument to use for a role, e.g. bass -> a
+        stock preset like Sounds/Bass/Sub 808 Bass.
 
         `path` is a browser path such as
-        "Plugins/VST3/Xfer Records/Serum 2" -- get one from search_devices.
+        "Sounds/Bass/Sub 808 Bass" (stock, preferred) or a plugin path --
+        get one from search_devices.
         The preference persists across sessions.
         """
         canonical = arrangement.normalise_role(role)
@@ -3471,7 +3473,7 @@ class Toolbox:
         """Save a standing instruction so it applies from now on.
 
         Use this whenever the user says to remember something, or states a
-        preference as a rule -- "always use Serum for bass", "start tracks at
+        preference as a rule -- "prefer stock instruments", "start tracks at
         128", "I want a riser before every drop". Saved rules are put in front
         of the model on every turn afterwards.
 

@@ -463,3 +463,14 @@ Three rules, in order:
 
 `process_mix` applies the whole plan; `build_track` calls it instead of
 compressing five named tracks. Most tracks end up uncompressed by design.
+
+## Stock instruments, not plugins (user rule, 2026-09-03)
+
+Default to Ableton stock devices and presets — Wavetable, Drift, Operator,
+Analog, and the named presets under `Sounds/` — never third-party plugins like
+Serum. The reason is practical: a stock preset has a real, scanned, named patch
+the catalogue can score by role and genre; a plugin loads its blank init patch
+with no name to choose from, so it is never the better *default*. The catalogue
+demotes `Plugins/` by 4 points, so stock always wins a tie, but a plugin stays
+findable when the user names one ("use Serum"). The user can swap any stock
+preset out by hand afterwards.

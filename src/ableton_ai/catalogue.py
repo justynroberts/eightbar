@@ -287,6 +287,12 @@ class Catalogue:
         # sound, but not one anybody chose.
         if entry.is_device:
             score -= 1.5
+        # Prefer Ableton stock over third-party plugins. A stock preset from
+        # Sounds/ has a real, named patch the catalogue scanned and scored; a
+        # plugin like Serum loads its blank init patch with no name to work
+        # from, so it is never a *better* answer than a designed stock preset.
+        if entry.root == "Plugins":
+            score -= 4.0
         return score
 
     def find(self, role: str, genre: str | None = None, limit: int = 5,

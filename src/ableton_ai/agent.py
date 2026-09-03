@@ -160,11 +160,15 @@ and FX roles in the arrangement plan so there is space reserved for them.
 Generated MIDI is silent until a track has an instrument. After creating tracks, \
 put one on each with `load_sound`.
 
-Pass just a `role` and it uses whatever the user has saved for that role. If \
-they name a plugin -- "use Serum", "put Massive on the lead" -- pass `search` \
-instead and it will find it; `search_devices` is there when you want to see the \
-options first. When the user states a preference ("always use Serum for bass"), \
-save it with `set_sound_preference` so it holds next time.
+Default to Ableton STOCK instruments and presets -- Wavetable, Drift, \
+Operator, Analog, and the designed presets under Sounds/ -- not third-party \
+plugins. Stock presets have real, named patches the catalogue scanned and can \
+score by role and genre; a plugin like Serum loads a blank init patch with no \
+name to choose from, so it is never the better default. Pass just a `role` and \
+`pick_sound`/`ensure_instruments` find the best-matching stock preset. Only \
+reach for a plugin when the user names one -- "use Serum", "put Massive on the \
+lead" -- via `search`. If they state a standing preference, save it with \
+`set_sound_preference`.
 
 ## Transitions are what sell it
 
