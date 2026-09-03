@@ -1,6 +1,6 @@
 /* MIT License - Copyright (c) fintonlabs.com */
 
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, shell } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, screen, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -187,6 +187,16 @@ function reveal(): void {
 }
 
 app.whenReady().then(() => {
+  // In development the stock Electron binary supplies the dock icon -- the
+  // icns in the builder config only exists in packaged builds. Set ours at
+  // runtime so the dev app wears the mark too.
+  if (process.platform === 'darwin' && app.dock) {
+    const mark = nativeImage.createFromPath(
+      join(app.getAppPath(), 'assets/icon.png'),
+    );
+    if (!mark.isEmpty()) app.dock.setIcon(mark);
+  }
+
   createWindow();
 
   // Once hidden, the palette has no button left to press, so getting it back
