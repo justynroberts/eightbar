@@ -1134,3 +1134,33 @@ def test_build_track_twice_does_not_double_the_band(box):
     assert len(box.bridge.tracks) == count, (
         f"{count} tracks became {len(box.bridge.tracks)}"
     )
+
+
+def test_enum_defaults_are_in_their_own_enum():
+    """A tool whose default value its own schema rejects is broken on arrival.
+
+    create_chord_clip defaulted rhythm="pad" while its enum listed the bass
+    rhythm patterns, so the very first call with no rhythm was rejected.
+    """
+    import inspect
+
+    from ableton_ai.tools import Toolbox
+
+    schemas = {s["name"]: s for s in tool_schemas()}
+    for name, schema in schemas.items():
+        method = getattr(Toolbox, f"tool_{name}", None)
+        if method is None:
+            continue
+        sig = inspect.signature(method)
+        props = schema["input_schema"]["properties"]
+        for param, spec in props.items():
+            enum = spec.get("enum")
+            if not enum or param not in sig.parameters:
+                continue
+            default = sig.parameters[param].default
+            if default is inspect.Parameter.empty or default is None:
+                continue
+            assert default in enum, (
+                f"{name}.{param} defaults to {default!r}, "
+                f"not in its enum {enum}"
+            )

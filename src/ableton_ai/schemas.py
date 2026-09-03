@@ -197,7 +197,13 @@ ITEM_SCHEMAS: dict[str, dict[str, Any]] = {
 # win over the table above.
 TOOL_ENUMS: dict[str, dict[str, list[str]]] = {
     "create_varied_chords": {"rhythm": _vocab(generators.CHORD_COMPS)},
-    "create_chord_clip": {"rhythm": _vocab(generators.RHYTHM_PATTERNS)},
+    # Chords are comped, not strummed on a bass pattern: pad, held, house,
+    # pumping, stab -- the vocabulary generate_chords actually reads. Wiring
+    # the bass RHYTHM_PATTERNS here rejected the tool's own default ("pad").
+    # sharp vs smooth duck -- not the generic contour "shape" the shared enum
+    # describes. Its own override, or it inherits arch/fall/rise/valley.
+    "add_sidechain_pump": {"shape": ["sharp", "smooth"]},
+    "create_chord_clip": {"rhythm": _vocab(generators.CHORD_COMPS)},
     "create_styled_bass": {
         "style": _vocab(basslines.STYLES, basslines.ALIASES, ["learned"])
     },

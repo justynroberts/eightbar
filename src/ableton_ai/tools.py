@@ -568,7 +568,7 @@ class Toolbox:
         bars: float = 8,
         octave: int = 3,
         extension: str = "triad",
-        rhythm: str = "whole",
+        rhythm: str = "pad",
         velocity: int = 85,
         spread: float = 0.0,
         humanise: float = 0.0,
