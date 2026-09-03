@@ -1222,3 +1222,41 @@ def test_processing_plan_high_passes_and_sidechains_by_role():
     # Only the rhythm section is compressed.
     compressed = {e["role"] for e in plan["compress"]}
     assert compressed == {"kick", "bass", "sub"}
+
+
+def test_timeout_retries_reads_but_not_writes():
+    """A transient Live-busy timeout is recovered for reads, surfaced for writes.
+
+    Live's main thread blocks momentarily (a dialog, a loading plugin). A
+    read is safe to retry; a write may have half-applied and must not be
+    repeated. And the socket is reset either way, so a late response can never
+    corrupt the next command -- which is why a timeout used to be followed by
+    a second, unrelated failure.
+    """
+    from ableton_ai.bridge import AbletonBridge, AbletonError
+
+    class Flaky(AbletonBridge):
+        def __init__(self):
+            super().__init__()
+            self.attempts = {}
+            self.closed = 0
+
+        def _call_locked(self, command, params):
+            self.attempts[command] = self.attempts.get(command, 0) + 1
+            if self.attempts[command] == 1:
+                raise AbletonError(f"{command}: Ableton did not respond within 30.0s")
+            return {"ok": True}
+
+        def _close_locked(self):
+            self.closed += 1
+
+    b = Flaky()
+    assert b.call("ping") == {"ok": True}
+    assert b.attempts["ping"] == 2, "a read should retry once"
+    assert b.closed >= 1, "the socket must be reset before retry"
+
+    import pytest
+
+    with pytest.raises(AbletonError, match="may have partly applied|was busy"):
+        b.call("create_clip", track_index=0)
+    assert b.attempts["create_clip"] == 1, "a write must not be retried"
