@@ -192,10 +192,36 @@ def check_part(part: Part) -> list[Finding]:
     return found
 
 
-def check_ensemble(parts: Sequence[Part]) -> list[Finding]:
+_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+
+def _consensus_key_pcs(parts: Sequence[Part]) -> set[int] | None:
+    """Pitch classes of the key the chord/bass parts agree on, if any."""
+    from . import corpus, theory
+
+    harmonic = [p for p in parts if p.role in ("chords", "pad", "keys", "piano")]
+    source = harmonic or [p for p in parts if p.role in ("bass", "sub")]
+    if not source:
+        return None
+    biggest = max(source, key=lambda p: len(p.notes))
+    notes = [corpus.MidiNote(pitch=int(n["pitch"]), start=float(n["start"]),
+                             duration=float(n["duration"]),
+                             velocity=int(n.get("velocity", 90)), track=0)
+             for n in biggest.notes]
+    if not notes:
+        return None
+    root, scale, _ = corpus.detect_key(notes)
+    root_pc = theory.note_to_pitch_class(root)
+    return {(root_pc + i) % 12 for i in theory.SCALES[theory.normalise_scale(scale)]}
+
+
+def check_ensemble(parts: Sequence[Part], key_pcs: set[int] | None = None
+                   ) -> list[Finding]:
     """Everything measurably wrong with how the parts sit together."""
     found: list[Finding] = []
     pitched = [p for p in parts if p.notes and not p.is_percussive]
+    if key_pcs is None:
+        key_pcs = _consensus_key_pcs(parts)
 
     # --- register crowding ------------------------------------------------
     tops = [p for p in pitched if p.role in TOP_LINE]
@@ -290,6 +316,27 @@ def check_ensemble(parts: Sequence[Part]) -> list[Finding]:
                     f"{hits[0]['interval']} at beat {hits[0]['at_beat']}",
                     "move one line by contrary motion, or shift the offending "
                     "notes to a third or sixth",
+                ))
+
+    # --- key coherence ----------------------------------------------------
+    # Parts built as strangers can end up in different keys, or a chromatic
+    # chord clip can clash with a diatonic bass. Flag notes that fall outside
+    # the consensus key -- the direct measure of "sounds dischordant".
+    if key_pcs is not None:
+        for part in pitched:
+            if part.is_percussive or len(part.notes) < 4:
+                continue
+            outside = [n for n in part.notes if int(n["pitch"]) % 12 not in key_pcs]
+            share = len(outside) / len(part.notes)
+            if share > 0.15:
+                names = sorted({_NOTE_NAMES[int(n["pitch"]) % 12] for n in outside})
+                found.append(Finding(
+                    "high" if share > 0.30 else "medium", part.name,
+                    "notes outside the key -- the source of dissonance",
+                    f"{len(outside)}/{len(part.notes)} notes off-key "
+                    f"({share:.0%}): {', '.join(names)}",
+                    "keep the part diatonic, or build every part from the same "
+                    "chords so they share the chromaticism (reference_track)",
                 ))
 
     # --- is anything actually holding the harmony -------------------------

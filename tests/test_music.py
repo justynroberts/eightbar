@@ -27,9 +27,27 @@ def test_c_minor_triad_is_c_eb_g():
     assert chord.name == "Cm"
 
 
-def test_dominant_seventh_on_the_fifth_degree():
-    chord = theory.build_chord("C", "minor", 5, extension="seventh")
-    assert chord.quality == "dominant7"
+def test_seventh_chords_stay_in_the_key():
+    """Extensions are stacked from scale tones, so nothing goes out of key.
+
+    This replaces an earlier rule that forced a harmonic-minor V7 (a raised
+    leading tone -- G# in A minor). That chromatic note is idiomatic in
+    classical cadences but clashes with an independently-generated diatonic
+    bass, which is exactly what "sounds dischordant" was. Modern dance and pop
+    use the natural-minor v; the raised-leading-tone V is available on demand
+    via the "secondary"/"moving" variations, where the bass is built to follow
+    it.
+    """
+    scale_pcs = {p % 12 for p in theory.scale_pitches("C", "minor", octaves=1)}
+    for degree in range(1, 8):
+        chord = theory.build_chord("C", "minor", degree, extension="seventh")
+        assert {p % 12 for p in chord.pitches} <= scale_pcs, (
+            f"degree {degree} ({chord.quality}) went out of key: "
+            f"{[p % 12 for p in chord.pitches]}"
+        )
+    # The natural-minor v carries a minor seventh, all in key.
+    v = theory.build_chord("C", "minor", 5, extension="seventh")
+    assert v.quality in ("minor7", "minor")
 
 
 def test_every_progression_stays_in_key():
@@ -306,3 +324,50 @@ def test_classical_and_cinematic_harmony_is_available():
         "C", "major", list(theory.PROGRESSIONS["pachelbel"]), octave=3
     )
     assert [c.name for c in built][:4] == ["C", "G", "Am", "Em"]
+
+
+def test_extensions_are_diatonic_in_every_mode():
+    """A major triad on a flat degree takes a flat seventh, not a major one.
+
+    The bVII of a minor key (G in A minor) is a major triad, and quality-based
+    extension gave it a major seventh (F#) -- an out-of-key note in every
+    extended chord, the direct cause of a reported dischord. Stacking scale
+    tones keeps it in key by construction.
+    """
+    from ableton_ai import voicings
+
+    cases = [
+        ("A", "minor", [1, 6, 3, 7]),
+        ("C", "minor", [1, 4, 5, 6]),
+        ("E", "dorian", [1, 4, 5, 1]),
+        ("G", "major", [1, 5, 6, 4]),
+        ("D", "phrygian", [1, 2, 7, 1]),
+    ]
+    for key, scale, degrees in cases:
+        scale_pcs = {p % 12 for p in theory.scale_pitches(key, scale, octaves=1)}
+        for degree in degrees:
+            chord = theory.build_chord(key, scale, degree, extension="ninth")
+            for ext in ("seventh", "ninth", "eleventh"):
+                pitches = voicings.extend(
+                    theory.build_chord(key, scale, degree),
+                    ext, key=key, scale=scale,
+                )
+                off = {p % 12 for p in pitches} - scale_pcs
+                assert not off, (
+                    f"{key} {scale} degree {degree} {ext}: out-of-key {off}"
+                )
+
+
+def test_picardy_third_only_at_the_end():
+    """A major tonic belongs at the close of a minor loop, never bar one."""
+    from ableton_ai import harmony
+
+    # Force borrowing repeatedly; the tonic must never be borrowed unless last.
+    for seed in range(20):
+        steps = harmony.borrow(harmony.as_steps([1, 6, 3, 7]), "minor",
+                               count=2, seed=seed)
+        for index, step in enumerate(steps):
+            if step.degree == 1 and step.quality == "major":
+                assert index == len(steps) - 1, (
+                    f"seed {seed}: Picardy tonic at position {index}, not last"
+                )

@@ -570,15 +570,17 @@ def test_remember_and_recall_through_the_tools(box, tmp_path):
 # ------------------------------------------- schema constrains the model
 
 def test_closed_vocabularies_are_enumerated_in_the_schema():
-    """Regression: the model passed variation="extended", which sounds
-    plausible and does not exist. Prose in a description does not stop it;
-    an enum does."""
+    """The variation enum matches exactly what the code accepts.
+
+    "extended" was once the plausible-but-nonexistent word the model reached
+    for; it is now a real recipe -- the safe diatonic default -- so the guard
+    is that the enum and the code agree, whatever the set is."""
     from ableton_ai import harmony
 
     schemas = {s["name"]: s for s in tool_schemas()}
     variation = schemas["create_varied_chords"]["input_schema"]["properties"]["variation"]
     assert set(variation["enum"]) == set(harmony.RECIPES)
-    assert "extended" not in variation["enum"]
+    assert "extended" in variation["enum"], "the diatonic default must be offered"
 
     # Every enum must match what the code actually accepts.
     scale = schemas["create_varied_chords"]["input_schema"]["properties"]["scale"]

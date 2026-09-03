@@ -86,7 +86,14 @@ def borrow(
     table = BORROWED_MINOR if is_minor else BORROWED_MAJOR
 
     out = [Step(s.degree, s.bars, s.quality, s.label) for s in steps]
-    candidates = [i for i, s in enumerate(out) if s.degree in table and not s.quality]
+    last = len(out) - 1
+    candidates = [
+        i for i, s in enumerate(out)
+        if s.degree in table and not s.quality
+        # A Picardy third brightens the *end* of a minor loop. On bar one it
+        # is just a wrong chord -- a major tonic where the ear expects minor.
+        and not (s.degree == 1 and i != last)
+    ]
     rng.shuffle(candidates)
 
     for index in candidates[:count]:
@@ -213,6 +220,8 @@ RECIPES: dict[str, str] = {
     "anticipate": "The final chord pulled forward half a bar.",
     "rich": "Turnaround plus one borrowed chord -- interesting, still simple.",
     "moving": "Secondary dominant plus a turnaround; the harmony never sits still.",
+    "extended": "Diatonic colour: gentle anticipation, no chromatic chords -- "
+                "safe against a plainly-diatonic bass and melody.",
 }
 
 
@@ -234,6 +243,11 @@ def vary(
     if recipe == "turnaround":
         return half_bar_turnaround(steps, seed)
     if recipe == "anticipate":
+        return anticipate(steps)
+    if recipe == "extended":
+        # Diatonic on purpose: colour comes from the extension parameter
+        # (7ths, 9ths), never from a borrowed or applied chord. Safe to play
+        # under a plainly-diatonic bass and melody.
         return anticipate(steps)
     if recipe == "rich":
         return borrow(half_bar_turnaround(steps, seed), scale, 1, seed)

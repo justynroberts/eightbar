@@ -145,11 +145,22 @@ def extension_vocabulary() -> list[str]:
     return sorted(set(EXTENSION_LADDER) | set(EXTENSION_ALIASES))
 
 
-def extend(chord: Chord, extension: str = "triad") -> list[int]:
+def extend(chord: Chord, extension: str = "triad",
+           key: str | None = None, scale: str | None = None) -> list[int]:
     """Add extensions to a chord and drop the tones that crowd them.
 
     Returns absolute pitches, unvoiced -- spacing is applied separately.
+
+    When `key` and `scale` are given, the added tones are the actual scale
+    degrees a seventh/ninth/etc above the root -- diatonic by construction.
+    This matters: a major triad on the bVII of a minor key (G in A minor)
+    takes a flat seventh (F natural), not the major seventh (F#) its triad
+    quality alone would imply, and getting that wrong put an out-of-key note
+    in every extended chord. Without the key it falls back to quality-based
+    intervals, which is right for a chord considered in isolation.
     """
+    from . import theory
+
     resolved = normalise_extension(extension)
     if resolved is None:
         raise ValueError(
@@ -161,11 +172,26 @@ def extend(chord: Chord, extension: str = "triad") -> list[int]:
     root = chord.root_pitch
     triad = list(chord.pitches[:3])
     wanted = EXTENSION_LADDER[extension]
-    intervals = _intervals_for(chord.quality)
 
     pitches = list(triad)
-    for name in wanted:
-        pitches.append(root + intervals[name])
+    if key is not None and scale is not None:
+        # Stack real scale tones a 7th/9th/11th/13th above the chord root.
+        step_for = {"7": 6, "9": 8, "11": 10, "13": 12}
+        octave = (root // 12) - 2
+        for name in wanted:
+            offset = step_for.get(name)
+            if offset is None:
+                continue
+            pitch = theory.degree_to_pitch(
+                key, scale, chord.degree + offset, octave
+            )
+            while pitch <= root:
+                pitch += 12
+            pitches.append(pitch)
+    else:
+        intervals = _intervals_for(chord.quality)
+        for name in wanted:
+            pitches.append(root + intervals[name])
 
     # The 5th is the first thing to go once a 7th is present: it adds no colour
     # and it sits exactly where the mix is most crowded.

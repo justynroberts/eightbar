@@ -1766,7 +1766,7 @@ class Toolbox:
         scale: str = "minor",
         degrees: Any = "1-6-4-5",
         bars: float = 8,
-        variation: str = "rich",
+        variation: str = "extended",
         octave: int | None = None,
         extension: str = "seventh",
         voicing: str = "open",
@@ -1834,8 +1834,8 @@ class Toolbox:
                 key, scale, entry.degree, octave=octave, quality=entry.quality
             )
             pitches = voicings.voice(
-                voicings.extend(base, extension), style=voicing,
-                centre=centre, quality=base.quality,
+                voicings.extend(base, extension, key=key, scale=scale),
+                style=voicing, centre=centre, quality=base.quality,
             )
             chords.append(theory.Chord(base.degree, base.root_pitch,
                                        base.quality, tuple(pitches)))

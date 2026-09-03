@@ -325,31 +325,34 @@ def build_chord(
     scale_key = normalise_scale(scale)
     root_pitch = degree_to_pitch(root, scale_key, degree, octave)
 
+    # Extensions are stacked from ACTUAL scale tones, not chosen by the
+    # triad's quality name. A major triad on the bVII of a minor key (G in A
+    # minor) takes a *dominant* seventh (F natural), not a major seventh
+    # (F#) -- deriving the seventh from "this triad is major, so major7"
+    # injected an out-of-key F# and made the chords sound dischordant against
+    # a diatonic bass. Stacking diatonic degrees keeps every extension in key
+    # by construction.
+    diatonic_extension = quality is None and extension in ("seventh", "ninth",
+                                                           "eleventh",
+                                                           "thirteenth")
     if quality is None:
         quality = triad_quality(scale_key, degree)
-        if extension == "seventh":
-            quality = {
-                "major": "major7", "minor": "minor7",
-                "diminished": "half_diminished7", "augmented": "major7",
-            }.get(quality, quality)
-            # The V chord wants a dominant 7th in both major and minor keys.
-            if degree == 5:
-                quality = "dominant7"
-        elif extension == "ninth":
-            quality = {
-                "major": "major9", "minor": "minor9",
-                "diminished": "half_diminished7", "augmented": "major9",
-            }.get(quality, quality)
-            if degree == 5:
-                quality = "dominant9"
 
-    if quality not in CHORD_QUALITIES:
-        raise ValueError(
-            f"unknown chord quality {quality!r}; "
-            f"try one of: {', '.join(sorted(CHORD_QUALITIES))}"
-        )
-
-    pitches = [root_pitch + i for i in CHORD_QUALITIES[quality]]
+    if diatonic_extension:
+        wanted = {"seventh": (1, 3, 5, 7), "ninth": (1, 3, 5, 7, 9),
+                  "eleventh": (1, 3, 5, 7, 9, 11),
+                  "thirteenth": (1, 3, 5, 7, 9, 11, 13)}[extension]
+        pitches = [
+            degree_to_pitch(root, scale_key, degree + step - 1, octave)
+            for step in wanted
+        ]
+    else:
+        if quality not in CHORD_QUALITIES:
+            raise ValueError(
+                f"unknown chord quality {quality!r}; "
+                f"try one of: {', '.join(sorted(CHORD_QUALITIES))}"
+            )
+        pitches = [root_pitch + i for i in CHORD_QUALITIES[quality]]
     for _ in range(inversion % max(1, len(pitches))):
         pitches = pitches[1:] + [pitches[0] + 12]
 
