@@ -209,6 +209,21 @@ class Toolbox:
 
         return corrections
 
+    # Parameter-name synonyms the model commonly reaches for, mapped to the
+    # real names. Applied only when the real name exists on the target tool
+    # and is not already given, so a tool that genuinely has "mode" is safe.
+    _PARAM_ALIASES: dict[str, str] = {
+        "bpm": "tempo", "beats_per_minute": "tempo",
+        "mode": "scale", "scale_name": "scale",
+        "root": "key", "root_note": "key", "tonic": "key",
+        "bars": "duration_seconds", "length": "duration_seconds",
+        "duration": "duration_seconds", "seconds": "duration_seconds",
+        "chords": "progression", "chord_progression": "progression",
+        "degrees_list": "degrees", "prog": "progression",
+        "style": "genre", "type": "genre",
+        "track": "track_index", "clip": "clip_index", "slot": "clip_index",
+    }
+
     def call(self, name: str, arguments: dict[str, Any]) -> Any:
         handler: Callable[..., Any] | None = getattr(self, f"tool_{name}", None)
         if handler is None:
@@ -222,12 +237,38 @@ class Toolbox:
             raise ToolError(f"no such tool: {name}.{hint}")
 
         arguments = dict(arguments)
-        corrections = self._repair_vocabulary(name, arguments)
-
-        # Check the arguments against the signature *before* calling, so a
-        # TypeError raised inside the tool body is not misreported as a bad
-        # argument list -- which hides the real fault completely.
         import inspect
+
+        # Repair parameter *names* first -- before value repair -- so a synonym
+        # like "mode" becomes "scale" and is then value-checked against the
+        # scale enum, not mistaken for a different tool's "mode" value. The
+        # model reaches for plausible synonyms ("bpm" for tempo, "bars" for
+        # length) and a raw TypeError hid which one and what the real names are.
+        accepted = set(inspect.signature(handler).parameters) - {"self"}
+        corrections: list[str] = []
+        for wrong, right in list(self._PARAM_ALIASES.items()):
+            if wrong in arguments and right in accepted and wrong not in accepted \
+                    and right not in arguments:
+                arguments[right] = arguments.pop(wrong)
+                corrections.append(f"{wrong} -> {right}")
+
+        corrections.extend(self._repair_vocabulary(name, arguments))
+
+        # Reject an unknown keyword with the list of accepted parameters rather
+        # than a bare "unexpected keyword argument".
+        unknown = [k for k in arguments if k not in accepted]
+        if unknown:
+            import difflib
+
+            hints = []
+            for key in unknown:
+                near = difflib.get_close_matches(key, accepted, n=2, cutoff=0.5)
+                hints.append(f"{key!r}" + (f" (did you mean {', '.join(near)}?)"
+                                           if near else ""))
+            raise ToolError(
+                f"{name}: unknown argument(s) {', '.join(hints)}. "
+                f"Accepts: {', '.join(sorted(accepted))}."
+            )
 
         try:
             inspect.signature(handler).bind(**arguments)

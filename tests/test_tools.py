@@ -52,7 +52,7 @@ def test_unknown_tool_is_an_error(box):
 
 
 def test_bad_arguments_surface_as_tool_errors(box):
-    with pytest.raises(ToolError, match="bad arguments"):
+    with pytest.raises(ToolError, match="unknown argument"):
         box.call("create_drum_clip", {"nonsense": 1})
 
 
@@ -507,7 +507,7 @@ def test_an_internal_error_is_not_reported_as_bad_arguments(box):
     assert "bad arguments" not in str(caught.value)
 
     # A genuine signature mistake still says so.
-    with pytest.raises(ToolError, match="bad arguments"):
+    with pytest.raises(ToolError, match="unknown argument.*Accepts"):
         box.call("create_drum_clip", {"not_a_parameter": 1})
 
 
@@ -1260,3 +1260,33 @@ def test_timeout_retries_reads_but_not_writes():
     with pytest.raises(AbletonError, match="may have partly applied|was busy"):
         b.call("create_clip", track_index=0)
     assert b.attempts["create_clip"] == 1, "a write must not be retried"
+
+
+def test_parameter_name_aliases_are_repaired(box):
+    """The model reaches for plausible parameter names; repair them like values.
+
+    'build_track(genre=trance, key=E, scale=minor)' failed with a bare
+    "unexpected keyword argument" that hid which argument and what the real
+    names were. Common synonyms are now renamed, and a genuinely unknown one
+    names the accepted parameters.
+    """
+    # scale is a real build_track parameter -- passes untouched.
+    r = box.call("build_track", {"genre": "trance", "key": "E", "scale": "minor",
+                                "duration_seconds": 120})
+    assert "scale" not in (r.get("corrected") or [])
+
+    # bpm/mode/length are synonyms -> tempo/scale/duration_seconds.
+    r = box.call("build_track", {"genre": "trance", "key": "E", "bpm": 138,
+                                "mode": "minor", "length": 120})
+    corrected = set(r.get("corrected") or [])
+    assert "bpm -> tempo" in corrected
+    assert "mode -> scale" in corrected
+    assert "length -> duration_seconds" in corrected
+
+    # An alias never overwrites an explicit real value.
+    with pytest.raises(ToolError, match="unknown argument"):
+        box.call("build_track", {"genre": "trance", "key": "E", "tonic": "C"})
+
+    # A genuinely unknown keyword lists the accepted parameters.
+    with pytest.raises(ToolError, match="Accepts:.*genre"):
+        box.call("build_track", {"genre": "trance", "wibble": 1})
