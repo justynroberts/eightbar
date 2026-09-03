@@ -861,9 +861,13 @@ class Toolbox:
                 made["Bass"], style=recipe["bass_style"], bars=8,
                 drums_track=drum_notes_track, **common))
         if "Chords" in made:
+            # Diatonic colour from the ninth, not chromatic borrowed chords:
+            # 'rich' injects a secondary-dominant leading tone that clashes
+            # with an independently-built bass and melody. Extensions carry the
+            # interest and stay in key.
             step("chords", lambda: self.tool_create_varied_chords(
-                made["Chords"], bars=8, variation="rich",
-                rhythm=recipe["chord_rhythm"], **common))
+                made["Chords"], bars=8, variation="extended",
+                extension="ninth", rhythm=recipe["chord_rhythm"], **common))
         # The melodic parts grow from one motif rather than three strangers:
         # the lead develops it, the hook fragments it an octave up, and the
         # Melody track carries the counter-line that answers it inverted.
@@ -892,8 +896,7 @@ class Toolbox:
                     **common))
             if "Melody" in made:
                 step("melody", lambda: self.tool_create_melody_clip(
-                    made["Melody"], bars=8, octave=4, variation="rich",
-                    **common))
+                    made["Melody"], bars=8, octave=4, **common))
         if "Riser" in made:
             step("riser", lambda: self.tool_create_riser_clip(
                 made["Riser"], bars=8, key=key, scale=mode))

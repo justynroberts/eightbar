@@ -1166,3 +1166,49 @@ def test_reharmonised_melody_stays_consonant():
             if any((mt - nt) % 12 in (1, 11) for nt in new_tones):
                 clashes += 1
     assert clashes == 0, f"{clashes} semitone clashes in the reharmonisation"
+
+
+def test_build_track_is_coherent_one_key_no_collisions():
+    """A whole build sits in one key with registers that do not collide.
+
+    The "sounds a mess" was a set of stale clips from many builds in
+    different keys, plus chords voiced down into the bass and leads pushed an
+    octave too high. A fresh build must be coherent by construction.
+    """
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from fake_live import FakeBridge
+
+    from ableton_ai import theory
+    from ableton_ai.tools import Toolbox
+
+    box = Toolbox(FakeBridge())
+    box.call("build_track", {"genre": "trance", "key": "E",
+                            "duration_seconds": 240, "seed": 7})
+
+    scale_pcs = {p % 12 for p in theory.scale_pitches("E", "minor", octaves=1)}
+    tracks = {t["name"]: t for t in box.bridge.tracks}
+
+    ranges = {}
+    for name in ("Bass", "Chords", "Lead", "Hook", "Melody"):
+        track = tracks.get(name)
+        if not track or not track["clips"]:
+            continue
+        notes = track["clips"][min(track["clips"])]["notes"]
+        if not notes:
+            continue
+        off = {n["pitch"] % 12 for n in notes} - scale_pcs
+        assert not off, f"{name} went out of E minor: {sorted(off)}"
+        ranges[name] = (min(n["pitch"] for n in notes),
+                        max(n["pitch"] for n in notes))
+
+    # Chords sit above the bass, not down in its register.
+    if "Bass" in ranges and "Chords" in ranges:
+        assert ranges["Chords"][0] >= ranges["Bass"][0] + 5, (
+            f"chords {ranges['Chords']} collide with bass {ranges['Bass']}"
+        )
+    # The lead is in a musical register, not shrill.
+    if "Lead" in ranges:
+        assert ranges["Lead"][1] <= 96, f"lead tops out at {ranges['Lead'][1]}"

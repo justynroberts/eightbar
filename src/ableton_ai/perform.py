@@ -78,14 +78,16 @@ REGISTER_BANDS: dict[str, tuple[int, int]] = {
     "guitar": (45, 76), "piano": (48, 84), "organ": (48, 79),
     "chords": (52, 76), "pad": (48, 79), "strings": (48, 84),
     "choir": (55, 79), "harp": (55, 91), "mallet": (72, 96),
-    # The four top-line roles get bands whose *centres* are a fifth or more
-    # apart, not merely bands that differ. Overlapping ranges are fine and
-    # unavoidable -- an arpeggio spans two octaves -- but two lines centred in
-    # the same place fight, and measurement kept finding lead and arp doing so.
-    "arp": (72, 96),        # two octaves of room, sitting above the chords
-    "melody": (60, 79),     # centre 70, the singing register
-    "lead": (79, 98),       # centre 88, over the top of the melody
-    "hook": (88, 105),      # centre 96, a clear fifth above the lead's centre
+    # The four top-line roles get bands whose *centres* are spaced apart so
+    # two lines never sit in the same octave, but kept in MUSICAL range --
+    # the earlier bands pushed the lead to E6 and the hook to D7, an octave
+    # above where a trance lead actually sits, which reads as shrill. These
+    # centres (melody C5, arp G5, lead C6, hook G6) span the singable top
+    # without climbing into the painful register.
+    "melody": (60, 74),     # centre 67, the singing register (C4-D5)
+    "arp":    (67, 86),     # centre 76, sparkling above the chords (G4-D6)
+    "lead":   (74, 90),     # centre 82, the trance lead register (D5-F#6)
+    "hook":   (81, 98),     # centre 89, over the top so it cuts (A5-D7)
     "brass": (52, 79), "woodwind": (60, 88), "vocal": (55, 79),
 }
 
