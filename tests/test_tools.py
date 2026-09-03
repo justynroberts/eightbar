@@ -1164,3 +1164,61 @@ def test_enum_defaults_are_in_their_own_enum():
                 f"{name}.{param} defaults to {default!r}, "
                 f"not in its enum {enum}"
             )
+
+
+def test_compression_only_where_it_belongs(box):
+    """Best practice: the rhythm section is compressed, melodic parts are not.
+
+    A compressor on every lead, pad and hook was the "too much weird
+    compression" -- those want EQ and sidechain, not gain reduction.
+    """
+    from ableton_ai import mixing
+
+    for role in ("kick", "drums", "bass", "sub", "vocal"):
+        assert mixing.wants_compression(role), role
+    for role in ("lead", "hook", "pad", "chords", "arp", "melody", "strings"):
+        assert not mixing.wants_compression(role), role
+
+    box.call("create_track", {"name": "Lead", "role": "lead"})
+    result = box.call("add_compression", {"track_index": 0})
+    assert result.get("skipped"), "a lead should not be compressed by default"
+
+    box.call("create_track", {"name": "Bass", "role": "bass"})
+    result = box.call("add_compression", {"track_index": 1})
+    assert not result.get("skipped"), "the bass should be compressed"
+
+
+def test_compressor_values_are_gentle_and_normalised():
+    """Threshold/ratio/attack/release are 0..1 -- passing a raw ratio clamps
+    to infinity:1, which crushed every track. Every value must be in range and
+    in the gentle third."""
+    from ableton_ai import mixing
+
+    for name, setting in mixing.COMPRESSION.items():
+        for field in ("threshold", "ratio", "attack", "release"):
+            value = getattr(setting, field)
+            assert 0.0 <= value <= 1.0, f"{name}.{field}={value} out of 0..1"
+        # No brick walls: ratio well under maximum.
+        assert setting.ratio <= 0.5, f"{name} ratio {setting.ratio} too high"
+
+
+def test_processing_plan_high_passes_and_sidechains_by_role():
+    """The engineer's rules: high-pass non-low roles, duck the sustained ones."""
+    from ableton_ai import processing
+
+    roles = {0: "kick", 1: "bass", 2: "pad", 3: "lead", 4: "hook", 5: "sub"}
+    plan = processing.plan(roles)
+
+    # The kick and sub are not high-passed away; everyone else is.
+    hp = {e["role"]: e["high_pass_hz"] for e in plan["eq"]}
+    assert hp["kick"] <= 40 and hp["sub"] == 0
+    assert hp["lead"] >= 150 and hp["hook"] >= 150 and hp["pad"] >= 150
+
+    # Sustained roles duck; the kick, lead and hook never do.
+    ducked = {e["role"] for e in plan["sidechain"]}
+    assert {"bass", "sub", "pad"} <= ducked
+    assert "kick" not in ducked and "lead" not in ducked and "hook" not in ducked
+
+    # Only the rhythm section is compressed.
+    compressed = {e["role"] for e in plan["compress"]}
+    assert compressed == {"kick", "bass", "sub"}

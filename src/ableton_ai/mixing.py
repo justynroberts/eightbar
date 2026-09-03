@@ -85,49 +85,64 @@ LIMITER_DEVICE = "Audio Effects/Limiter"
 
 @dataclass(frozen=True)
 class CompressorSetting:
-    """A compressor starting point, in real units rather than 0..1."""
+    """A compressor starting point.
 
-    threshold_db: float
-    ratio: float
-    attack_ms: float
-    release_ms: float
-    makeup_db: float
+    threshold/ratio/attack/release are NORMALISED 0..1 positions, because
+    that is what Live's Compressor exposes for them in the LOM -- passing
+    real dB or a raw ratio clamps to the 0..1 range, which is how a 4:1 ratio
+    silently became infinity:1 and crushed every track. makeup is real dB
+    (the Output parameter has a true -36..36 range). The positions here are
+    calibrated to gentle, musical amounts -- a few dB of movement, never a
+    brick wall.
+    """
+
+    threshold: float      # 0..1, lower = compress more of the signal
+    ratio: float          # 0..1, lower = gentler
+    attack: float         # 0..1, lower = faster
+    release: float        # 0..1, lower = faster
+    makeup_db: float      # real dB
     why: str
 
 
-# Attack and release are the settings that matter and the ones most often got
-# wrong. Slow attack lets the transient through, which is what keeps a kick
-# punchy; fast release lets the track breathe between hits.
+# Deliberately restrained. The failure mode this replaces was every parameter
+# clamped to its extreme; these are all in the gentle third of their range.
 COMPRESSION: dict[str, CompressorSetting] = {
     "punch": CompressorSetting(
-        -18, 4.0, 10.0, 120.0, 3.0,
-        "Slow attack keeps the transient, fast release lets it breathe. Drums.",
+        0.35, 0.30, 0.30, 0.35, 2.0,
+        "Medium attack keeps the transient, quick release breathes. Drums.",
     ),
     "glue": CompressorSetting(
-        -24, 2.0, 30.0, 300.0, 2.0,
-        "Gentle and slow -- holds a group together without flattening it.",
+        0.45, 0.18, 0.45, 0.55, 1.5,
+        "Barely there -- holds a group together without flattening it.",
     ),
     "control": CompressorSetting(
-        -20, 3.0, 5.0, 150.0, 3.0,
-        "Evens out level. Bass and vocals, where consistency matters most.",
+        0.38, 0.25, 0.20, 0.40, 2.0,
+        "Evens out level. Bass, where consistency matters most.",
     ),
     "squeeze": CompressorSetting(
-        -26, 6.0, 1.0, 80.0, 5.0,
+        0.30, 0.45, 0.12, 0.30, 3.0,
         "Aggressive and obvious. A deliberate effect, not a corrective one.",
     ),
     "master": CompressorSetting(
-        -14, 2.0, 30.0, 400.0, 1.0,
+        0.55, 0.15, 0.45, 0.60, 0.5,
         "Barely working -- 1-2dB of movement at most on the master bus.",
     ),
 }
 
-# Which compressor style suits which role, when nothing is specified.
+# Which roles get a compressor at all, and which style. Best practice for
+# dance: compress the rhythm section and leave the melodic parts alone. A
+# compressor on every lead, pad and hook is the "too much weird compression"
+# the user heard -- those parts want EQ and sidechain, not gain reduction.
 ROLE_COMPRESSION: dict[str, str] = {
     "kick": "punch", "drums": "punch", "perc": "punch",
-    "bass": "control", "sub": "control", "vocal": "control",
-    "chords": "glue", "pad": "glue", "arp": "glue",
-    "lead": "control", "hook": "control",
+    "bass": "control", "sub": "control",
+    "vocal": "control",
 }
+
+
+def wants_compression(role: str) -> bool:
+    """Only the rhythm section and vocals are compressed by default."""
+    return (role or "").lower() in ROLE_COMPRESSION
 
 
 def compression_for(role: str) -> CompressorSetting:

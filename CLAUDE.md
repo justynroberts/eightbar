@@ -439,3 +439,27 @@ Modern rhythm vocabulary: tresillo (3-3-2), dembow, two_step, log_drum cells in
 TOOL_ENUMS / PARAM_DOCS is legal Python and silently swallows the earlier
 entry — the hook patterns vanished from the schema that way.
 `test_tool_enum_tables_have_no_duplicate_keys` now guards the whole class.
+
+## Processing is an engineer's ruleset, not a device on every track
+
+`processing.py` encodes mix best practice by role. The reform came from "way
+too much weird compression": Live's Compressor exposes Threshold/Ratio/Attack/
+Release as **0..1 normalised** params, and the code wrote raw dB/ratio with
+`normalised=False`, so ratio 4.0 clamped to 1.0 = infinity:1 brick-wall
+limiting on every track. `CompressorSetting` now holds normalised 0..1
+positions (all in the gentle third); makeup is real dB (Output).
+
+Three rules, in order:
+
+- **EQ carves space.** `EQ_RULES` high-passes every non-low role (the biggest
+  single cleanup); kick/sub/808/bass keep their bottom.
+- **Sidechain breathes.** `SIDECHAIN_ROLES` (bass, sub, pad, chords, strings,
+  keys, organ) duck against the kick — the dance pump. Never the drums or the
+  transient leads.
+- **Compression controls, sparingly.** `mixing.ROLE_COMPRESSION` is now only
+  kick/drums/perc/bass/sub/vocal. `add_compression` *skips* any other role
+  with a reason; a lead/pad/hook/arp wants EQ and sidechain, not gain
+  reduction. `wants_compression()` gates it.
+
+`process_mix` applies the whole plan; `build_track` calls it instead of
+compressing five named tracks. Most tracks end up uncompressed by design.

@@ -21,7 +21,7 @@ from typing import Any, Callable
 from . import (
     arrangement, basslines, catalogue, chordbank, composing, corpus, critique,
     generators, groove, harmony, hooks, leads, melody, mixing, motif, perform,
-    presets, taste, theory, variations, voicings,
+    presets, processing, taste, theory, variations, voicings,
 )
 
 try:  # numpy and friends are optional; everything else works without them
@@ -975,19 +975,19 @@ class Toolbox:
         # -- mix ----------------------------------------------------------
         if mix:
             step("gain staging", lambda: self.tool_mix_levels())
-            # Measured gain staging needs the transport running; do it after
-            # the arrangement exists rather than against silence.
-            step("frequency separation", lambda: self.tool_frequency_separation())
+            # The engineer's chain, by role: EQ high-passes every non-low part
+            # to clear the mud, the sustained elements duck against the kick
+            # for the dance pump, and compression touches only the rhythm
+            # section. The melodic parts are shaped with EQ and sidechain, not
+            # squashed -- compressing everything is what sounded wrong.
+            step("process mix", lambda: self.tool_process_mix(
+                kick_track=made.get("Kick")))
             # Two returns so sends have somewhere to go, then role-based
             # amounts -- drums nearly dry, pads and FX wet.
             step("reverb return",
                  lambda: self.tool_create_return_track("Reverb"))
             step("delay return", lambda: self.tool_create_return_track("Delay"))
             step("sends", lambda: self.tool_set_sends_by_role())
-            for name in ("Kick", "Drums", "Bass", "Chords", "Lead"):
-                if name in made:
-                    step(f"compression {name}",
-                         lambda n=name: self.tool_add_compression(made[n]))
         if master:
             step("master chain", lambda: self.tool_add_master_chain())
 
@@ -4264,6 +4264,17 @@ class Toolbox:
             role = role or _role_from_name(
                 self.bridge.call("get_song")["tracks"][track_index].get("name", "")
             )
+            # Best practice: only the rhythm section and vocals are compressed.
+            # A lead, pad, hook or arp wants EQ and sidechain, not gain
+            # reduction -- compressing everything was the "too much" the user
+            # heard. Skip rather than force a compressor where none belongs.
+            if not mixing.wants_compression(role):
+                return {
+                    "track_index": track_index, "skipped": True, "role": role,
+                    "why": (f"{role} is not compressed by default -- it wants "
+                            "EQ and sidechain, not gain reduction. Pass an "
+                            "explicit style to override."),
+                }
             setting = mixing.compression_for(role)
             style = mixing.ROLE_COMPRESSION.get(role, "glue")
         else:
@@ -4291,7 +4302,7 @@ class Toolbox:
         names = [str(p.get("name", "")) for p in target.get("parameters", [])]
         applied, missing = [], []
 
-        def try_set(fragment: str, value: float) -> None:
+        def try_set(fragment: str, value: float, normalised: bool = True) -> None:
             match = next((n for n in names if fragment.lower() in n.lower()), None)
             if match is None:
                 missing.append(fragment)
@@ -4299,15 +4310,18 @@ class Toolbox:
             self.bridge.call(
                 "set_device_parameter", track_index=track_index,
                 device_index=target["index"], parameter=match,
-                value=value, normalised=False,
+                value=value, normalised=normalised,
             )
-            applied.append(f"{match}={value}")
+            applied.append(f"{match}={round(value, 3)}")
 
-        try_set("Threshold", setting.threshold_db)
+        # Threshold/Ratio/Attack/Release are 0..1 in Live's Compressor, so
+        # they go in normalised; Output/Makeup is real dB.
+        try_set("Threshold", setting.threshold)
         try_set("Ratio", setting.ratio)
-        try_set("Attack", setting.attack_ms)
-        try_set("Release", setting.release_ms)
-        try_set("Makeup", setting.makeup_db)
+        try_set("Attack", setting.attack)
+        try_set("Release", setting.release)
+        try_set("Output", setting.makeup_db, normalised=False)
+        try_set("Makeup", setting.makeup_db, normalised=False)
 
         return {
             "track_index": track_index, "style": style,
@@ -4405,18 +4419,21 @@ class Toolbox:
         if glue:
             setting = mixing.COMPRESSION["master"]
             names = [str(p.get("name", "")) for p in glue.get("parameters", [])]
+            # The Glue Compressor's threshold/ratio/attack/release are also
+            # 0..1 in the LOM. Master glue is the gentlest of all -- a hair
+            # of movement to bind the mix, never a pump.
             for fragment, value in (
-                ("Threshold", setting.threshold_db),
+                ("Threshold", setting.threshold),
                 ("Ratio", setting.ratio),
-                ("Attack", setting.attack_ms),
-                ("Release", setting.release_ms),
+                ("Attack", setting.attack),
+                ("Release", setting.release),
             ):
                 match = next((n for n in names if fragment.lower() in n.lower()), None)
                 if match:
                     self.bridge.call(
                         "set_device_parameter", track_index=MASTER,
                         device_index=glue["index"], parameter=match,
-                        value=value, normalised=False,
+                        value=value, normalised=True,
                     )
 
         return {
@@ -4426,6 +4443,80 @@ class Toolbox:
             "note": (
                 "This is a ceiling and light glue only. Check it with "
                 "capture_audio then analyse_audio, and against a reference."
+            ),
+        }
+
+    def tool_process_mix(
+        self,
+        kick_track: int | None = None,
+        apply_eq: bool = True,
+        apply_sidechain: bool = True,
+        apply_compression: bool = True,
+    ) -> dict:
+        """Process the whole mix the way an engineer would: EQ, sidechain,
+        compression -- in that order, by role, and only where each belongs.
+
+        EQ high-passes every non-low role to clear the mud (the biggest single
+        cleanup there is), the sustained elements (bass, pads, chords) duck
+        against the kick for the dance pump, and compression touches only the
+        rhythm section. Melodic parts are shaped with EQ and sidechain, never
+        squashed. This is the fix for "too much weird compression": most tracks
+        should not be compressed at all.
+        """
+        state = self.bridge.call("get_song")
+        roles = {int(t["index"]): _role_from_name(t.get("name", ""), default=None)
+                 for t in state.get("tracks", [])
+                 if t.get("is_midi") and (t.get("clips")
+                 or t.get("arrangement_clip_count"))}
+        roles = {i: r for i, r in roles.items() if r}
+        plan = processing.plan(roles)
+
+        done = {"eq": [], "sidechain": [], "compression": [], "skipped": []}
+
+        if apply_eq:
+            for entry in plan["eq"]:
+                move = processing.eq_for(entry["role"])
+                if move.high_pass_hz > 0:
+                    try:
+                        self.tool_add_eq(track_index=entry["track_index"],
+                                         high_pass_hz=move.high_pass_hz)
+                        done["eq"].append(
+                            f"{entry['role']} HP@{int(move.high_pass_hz)}Hz")
+                    except ToolError as exc:
+                        done["skipped"].append(f"eq {entry['role']}: {exc}")
+
+        if apply_sidechain:
+            for entry in plan["sidechain"]:
+                try:
+                    self.tool_add_sidechain_pump(
+                        track_index=entry["track_index"],
+                        depth=entry["depth"],
+                        shape="sharp" if entry["role"] in ("bass", "sub")
+                        else "smooth",
+                    )
+                    done["sidechain"].append(
+                        f"{entry['role']} duck {entry['depth']}")
+                except ToolError as exc:
+                    done["skipped"].append(f"sidechain {entry['role']}: {exc}")
+
+        if apply_compression:
+            for entry in plan["compress"]:
+                try:
+                    r = self.tool_add_compression(
+                        track_index=entry["track_index"], style=entry["style"])
+                    if not r.get("skipped"):
+                        done["compression"].append(
+                            f"{entry['role']} {entry['style']}")
+                except ToolError as exc:
+                    done["skipped"].append(f"comp {entry['role']}: {exc}")
+
+        return {
+            **done,
+            "summary": (
+                f"{len(done['eq'])} EQ'd, {len(done['sidechain'])} sidechained, "
+                f"{len(done['compression'])} compressed "
+                f"({len(roles) - len(done['compression'])} left uncompressed "
+                "-- by design)"
             ),
         }
 
