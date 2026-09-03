@@ -191,10 +191,22 @@ app.whenReady().then(() => {
   // icns in the builder config only exists in packaged builds. Set ours at
   // runtime so the dev app wears the mark too.
   if (process.platform === 'darwin' && app.dock) {
-    const mark = nativeImage.createFromPath(
+    // getAppPath() points at dist/main in dev, so try the source assets
+    // (two up from the bundled main) as well as the packaged resources.
+    const candidates = [
+      join(here, '../../assets/icon.png'),
       join(app.getAppPath(), 'assets/icon.png'),
-    );
-    if (!mark.isEmpty()) app.dock.setIcon(mark);
+      join(process.resourcesPath ?? '', 'assets/icon.png'),
+    ];
+    const found = candidates.find((p) => existsSync(p));
+    const mark = found ? nativeImage.createFromPath(found) : nativeImage.createEmpty();
+    if (mark.isEmpty()) {
+      process.stderr.write(
+        `[ui] dock icon not found; looked in ${candidates.join(', ')}\n`,
+      );
+    } else {
+      app.dock.setIcon(mark);
+    }
   }
 
   createWindow();
