@@ -661,6 +661,22 @@ about.addEventListener('click', (event) => {
   if (event.target === about) about.close();
 });
 
+// The splash holds for 2.5s from open, then fades and is removed. If the user
+// clicks it, dismiss early -- a splash that traps you is an annoyance.
+(() => {
+  const splash = document.getElementById('splash');
+  if (!splash) return;
+  let done = false;
+  const dismiss = (): void => {
+    if (done) return;
+    done = true;
+    splash.classList.add('gone');
+    window.setTimeout(() => splash.remove(), 500);
+  };
+  splash.addEventListener('click', dismiss);
+  window.setTimeout(dismiss, 2500);
+})();
+
 void (async () => {
   let startTab = 'chat';
   try { startTab = localStorage.getItem('ableton-ai-tab') ?? 'chat'; } catch { /* ignore */ }

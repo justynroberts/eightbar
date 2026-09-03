@@ -85,13 +85,19 @@ body {
 
 .wordmark {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--font-display);
   font-variation-settings: 'wght' 700, 'wdth' 85, 'opsz' 18;
   font-size: 14px;
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
-.wordmark span { color: var(--accent); }
+.wordmark .wm-text span { color: var(--accent); }
+/* The mark, sized to the cap height of the wordmark so it reads as part of
+   the lockup rather than a separate button. */
+.mark { width: 17px; height: 17px; flex: none; display: block; }
 .titlebar-tools { display: flex; gap: 4px; }
 
 /* ------------------------------------------------------------ status bar */
@@ -557,3 +563,51 @@ code {
 }
 .bubble .md-h { display: block; margin-top: 6px; }
 .bubble .md-li { display: block; padding-left: 8px; }
+
+/* ----------------------------------------------------------- splash screen */
+/* Shown once on open for 2.5s, then fades. It carries the mark and wordmark
+   over the app's own ground so the launch feels authored, not blank. The
+   fade-out is JS-triggered (class 'gone'); entrance animates on mount. */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background:
+    radial-gradient(120% 90% at 50% 40%,
+      color-mix(in srgb, var(--accent) 10%, var(--panel)) 0%,
+      var(--bg) 70%);
+  transition: opacity 450ms ease, transform 450ms ease;
+}
+.splash.gone { opacity: 0; transform: scale(1.04); pointer-events: none; }
+.splash-mark { animation: splash-rise 700ms cubic-bezier(.2,.8,.2,1) both; }
+.splash-icon { width: 96px; height: 96px; filter: drop-shadow(0 8px 24px rgb(0 0 0 / .35)); }
+.splash-word {
+  font-family: var(--font-display);
+  font-variation-settings: 'wght' 800, 'wdth' 90, 'opsz' 40;
+  font-size: 40px;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  animation: splash-rise 700ms cubic-bezier(.2,.8,.2,1) 90ms both;
+}
+.splash-word span { color: var(--accent); }
+.splash-tag {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  animation: splash-rise 700ms cubic-bezier(.2,.8,.2,1) 180ms both;
+}
+@keyframes splash-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-mark, .splash-word, .splash-tag { animation-duration: .01ms; }
+  .splash { transition-duration: .01ms; }
+}
