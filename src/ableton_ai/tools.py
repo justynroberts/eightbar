@@ -833,7 +833,8 @@ class Toolbox:
             if created:
                 made[name] = int(created["track_index"])
 
-        step("instruments", lambda: self.tool_ensure_instruments(only_empty=True))
+        step("instruments", lambda: self.tool_ensure_instruments(
+            only_empty=True, seed=seed))
 
         # A bare Drum Rack has no samples in it. Put the genre's kit on every
         # drum track explicitly rather than relying on the generic default.
@@ -3852,6 +3853,7 @@ class Toolbox:
         role: str,
         character: str | None = None,
         genre: str | None = None,
+        seed: int | None = None,
     ) -> dict:
         """Load a designed preset that suits the role, rather than a raw device.
 
@@ -3872,7 +3874,22 @@ class Toolbox:
         found = self._catalogue()
         if found.entries:
             wanted_character = f"{character} {genre}".strip() if character else genre
-            for entry in found.find(role, wanted_character or genre, limit=6):
+            # Draw from the top candidates in a varied order rather than always
+            # the single best -- Ableton ships hundreds per category and a set
+            # wants a spread of them, not one preset on every track. Taste-
+            # recorded winners (record_taste kind="preset") float to the front.
+            candidates = found.find(role, wanted_character or genre, limit=12)
+            wins = self._taste().weights("preset", genre or "any")
+            import random
+            rng = random.Random(seed)
+            def rank(pair):
+                idx, e = pair
+                base = len(candidates) - idx           # score order
+                return base + 3 * wins.get(e.display, 0) + (
+                    rng.random() * 3 if seed is not None else 0)
+            ordered = [e for _, e in sorted(
+                enumerate(candidates), key=rank, reverse=True)]
+            for entry in ordered:
                 try:
                     match = self._browser_item(entry.path)
                 except (AbletonError, AbletonNotRunning, ToolError):
@@ -3886,6 +3903,7 @@ class Toolbox:
                     "track_index": track_index, "role": role,
                     "preset": entry.display, "path": entry.path,
                     "source": "catalogue",
+                    "alternatives": [e.display for e in ordered[1:6]],
                     "summary": f"loaded {entry.display!r} for {role}",
                 }
 
@@ -3997,6 +4015,7 @@ class Toolbox:
         only_empty: bool = True,
         roles: dict | None = None,
         prefer_presets: bool = False,
+        seed: int | None = None,
     ) -> dict:
         """Give every MIDI track an instrument, so nothing is silent.
 
@@ -4029,7 +4048,9 @@ class Toolbox:
                     # try the curated pick first and only fall back to the
                     # role's default instrument if nothing matches.
                     try:
-                        result = self.tool_pick_sound(track_index=index, role=role)
+                        result = self.tool_pick_sound(
+                            track_index=index, role=role,
+                            seed=None if seed is None else seed + index)
                         what = result.get("preset")
                     except ToolError:
                         result = self.tool_load_sound(track_index=index, role=role)

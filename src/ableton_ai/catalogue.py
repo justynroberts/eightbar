@@ -310,12 +310,27 @@ class Catalogue:
         )
         return [e for e in ranked[:limit] if self.score(e, role, genre) > 0]
 
-    def best(self, role: str, genre: str | None = None) -> str:
-        """One path for a role: the best match, or a stock device."""
-        found = self.find(role, genre, limit=1)
-        if found:
+    def best(self, role: str, genre: str | None = None,
+             seed: int | None = None, variety: int = 8) -> str:
+        """A good match for a role -- not always the single top score.
+
+        Ableton ships hundreds of presets per category, so always returning
+        the #1 match means every trance bass is the same "Sub 808 Bass". This
+        draws from the top `variety` candidates, weighted towards the better
+        scores, so a set gets a spread of the stock library instead of one
+        preset repeated. Deterministic per seed.
+        """
+        found = self.find(role, genre, limit=variety)
+        if not found:
+            return FALLBACK_DEVICES.get(role, "Instruments/Wavetable")
+        if len(found) == 1 or seed is None:
             return found[0].path
-        return FALLBACK_DEVICES.get(role, "Instruments/Wavetable")
+        # Weight by rank: the top match is likeliest but not certain. A simple
+        # descending weight keeps good picks common and poor ones rare.
+        import random
+
+        weights = [max(1, variety - i) for i in range(len(found))]
+        return random.Random(seed).choices(found, weights=weights, k=1)[0].path
 
     # ------------------------------------------------------------------ reporting
 
