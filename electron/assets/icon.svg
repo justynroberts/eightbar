@@ -3,45 +3,61 @@
 <!--
   Eightbar.
 
-  Eight clip lanes on a timeline, entering one after another. That staircase is
-  what an arrangement looks like from above, and it is what the app builds:
-  parts stacking up across eight-bar phrases until the drop.
+  Four clip bars entering one after another down the staircase of an
+  arrangement, and the playhead landing on the drop. The first icon drew all
+  eight lanes; at dock size eight thin stripes mush into a gradient, and an
+  icon that cannot survive 32px is not an icon. Four thick bars carry the
+  same idea and stay legible at 16.
 
-  Colours are the musical-role palette used throughout the interface, so the
-  mark and the arrange view speak the same language. Flat fills, hard edges and
-  Live's dark chrome, so it sits beside Ableton without looking like a visitor.
+  Colours are the app's musical-role palette over Live's dark chrome, so the
+  mark sits beside Ableton without looking like a visitor. The subtle "8"
+  watermark ties the name in for the sizes big enough to show it.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
     <clipPath id="squircle">
       <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228"/>
     </clipPath>
+    <linearGradient id="chrome" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f2f2f"/>
+      <stop offset="1" stop-color="#232323"/>
+    </linearGradient>
   </defs>
 
   <g clip-path="url(#squircle)">
-    <rect width="1024" height="1024" fill="#2a2a2a"/>
+    <rect width="1024" height="1024" fill="url(#chrome)"/>
 
-    <!-- Phrase boundaries, ruled like a timeline. -->
-    <g stroke="#383838" stroke-width="3">
-      <line x1="316" y1="150" x2="316" y2="874"/>
-      <line x1="520" y1="150" x2="520" y2="874"/>
-      <line x1="724" y1="150" x2="724" y2="874"/>
+    <!-- The eight of eightbar, watermarked into the chrome: present at
+         desktop sizes, invisible clutter at none. -->
+    <text x="700" y="880" font-family="Helvetica Neue, Arial, sans-serif"
+          font-size="620" font-weight="700" fill="#ffffff" opacity="0.05"
+          text-anchor="middle">8</text>
+
+    <!-- Phrase ruler: the eight-bar grid, barely there. -->
+    <g stroke="#3d3d3d" stroke-width="4">
+      <line x1="330" y1="128" x2="330" y2="896"/>
+      <line x1="548" y1="128" x2="548" y2="896"/>
+      <line x1="766" y1="128" x2="766" y2="896"/>
     </g>
 
-    <!-- Eight lanes, each entering later than the one above: the build. -->
+    <!-- Four parts entering down the staircase: the build, readable at 16px. -->
     <g>
-      <rect x="112" y="176" width="800" height="62" fill="#ff9b4e"/>
-      <rect x="188" y="262" width="724" height="62" fill="#ffb84d"/>
-      <rect x="264" y="348" width="648" height="62" fill="#e7d44b"/>
-      <rect x="340" y="434" width="572" height="62" fill="#8fd94f"/>
-      <rect x="416" y="520" width="496" height="62" fill="#4fd7b8"/>
-      <rect x="492" y="606" width="420" height="62" fill="#54c4ec"/>
-      <rect x="568" y="692" width="344" height="62" fill="#7ba3ff"/>
-      <rect x="644" y="778" width="268" height="62" fill="#b389ff"/>
+      <rect x="112" y="152"  width="800" height="140" rx="28" fill="#ff9b4e"/>
+      <rect x="252" y="332"  width="660" height="140" rx="28" fill="#e7d44b"/>
+      <rect x="392" y="512"  width="520" height="140" rx="28" fill="#4fd7b8"/>
+      <rect x="532" y="692"  width="380" height="140" rx="28" fill="#7ba3ff"/>
+    </g>
+
+    <!-- Gloss on each bar, so the fills read as clips rather than stripes. -->
+    <g fill="#ffffff" opacity="0.18">
+      <rect x="112" y="152" width="800" height="46" rx="23"/>
+      <rect x="252" y="332" width="660" height="46" rx="23"/>
+      <rect x="392" y="512" width="520" height="46" rx="23"/>
+      <rect x="532" y="692" width="380" height="46" rx="23"/>
     </g>
 
     <!-- The playhead, in Live's selection amber, sitting on the drop. -->
-    <rect x="636" y="140" width="12" height="744" fill="#ffad56"/>
-    <path d="M 610 140 L 674 140 L 642 196 Z" fill="#ffad56"/>
+    <path d="M 806 96 L 890 96 L 848 168 Z" fill="#ffad56"/>
+    <rect x="840" y="120" width="16" height="800" rx="8" fill="#ffad56"/>
   </g>
 </svg>

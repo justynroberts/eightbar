@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import (
-    arrangement, basslines, catalogue, composing, corpus, critique, generators,
-    groove, harmony, hooks, leads, melody, mixing, motif, perform, presets,
-    taste, theory, variations, voicings,
+    arrangement, basslines, catalogue, chordbank, composing, corpus, critique,
+    generators, groove, harmony, hooks, leads, melody, mixing, motif, perform,
+    presets, taste, theory, variations, voicings,
 )
 
 try:  # numpy and friends are optional; everything else works without them
@@ -577,8 +577,15 @@ class Toolbox:
         seed: int | None = None,
         reference_track: int | None = None,
         reference_clip: int = 0,
+        mood: str | None = None,
+        bank_style: str | None = None,
     ) -> dict:
         """Generate a chord progression clip. Voice leading is applied automatically so the chords move smoothly instead of jumping in octaves."""
+        if mood is not None:
+            return self._chords_from_bank(
+                track_index, clip_index, key, mood, bank_style, bars, name,
+                seed,
+            )
         chords, bars_per_chord = self._progression(
             key, scale, degrees, bars, octave, extension, smooth_voicing,
             reference_track=reference_track, reference_clip=reference_clip,
@@ -1280,6 +1287,85 @@ class Toolbox:
             ),
         }
 
+    def _bank(self) -> chordbank.ChordBank:
+        if getattr(self, "_chord_bank", None) is None:
+            self._chord_bank = chordbank.ChordBank()
+        return self._chord_bank
+
+    def _chords_from_bank(
+        self, track_index, clip_index, key, mood, bank_style, bars, name, seed,
+    ) -> dict:
+        """Write a progression from the user's library, voicings and all.
+
+        The file's i7 carries its actual seventh and spacing; a degree list
+        rebuilds a plain triad. When the user has 700 progressions they call
+        good, using them beats reconstructing them.
+        """
+        bank = self._bank()
+        try:
+            entry = bank.pick(mood=mood, key=key, seed=seed)
+            notes = bank.load_notes(entry, key=key, bars=bars,
+                                    style=bank_style)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
+        result = self._write_clip(
+            track_index, clip_index, bars, notes,
+            name or f"{key} {entry.name} ({mood})", role="chords",
+        )
+        result["progression"] = entry.name
+        result["degrees"] = entry.degrees
+        result["moods"] = list(entry.moods)
+        result["from"] = entry.path.name
+        result["summary"] = (
+            f"{entry.name} from the reference library "
+            f"({', '.join(entry.moods)}), voicings as written, in {key}"
+        )
+        return result
+
+    def tool_find_progressions(
+        self,
+        mood: str | None = None,
+        key: str | None = None,
+        length: int | None = None,
+        limit: int = 10,
+        seed: int | None = None,
+    ) -> dict:
+        """Search the user's own progression library by mood.
+
+        The references folder holds ~700 progressions the user chose, each
+        labelled with its key, its roman-numeral spelling and mood words --
+        nostalgic, mysterious, hopeful, dark, triumphant... This searches
+        those labels. Use it when the request names a feeling rather than a
+        chord list, then pass the winner's `name` to a chord tool as
+        `degrees`, or better, write its actual voicings with `mood=` on
+        create_chord_clip / create_varied_chords.
+        """
+        bank = self._bank()
+        if not bank.entries:
+            raise ToolError(
+                f"no reference library at {bank.root} -- add labelled MIDI "
+                "progressions to references/"
+            )
+        try:
+            found = bank.find(mood=mood, key=key, length=length,
+                              limit=limit, seed=seed)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
+        return {
+            "matches": [
+                {"name": e.name, "key": e.key, "degrees": e.degrees,
+                 "moods": list(e.moods), "chords": e.length,
+                 "styles": sorted(e.styles)}
+                for e in found
+            ],
+            "moods_available": bank.moods(),
+            "summary": (
+                f"{len(found)} progression(s)"
+                + (f" for {mood!r}" if mood else "")
+                + (": " + "; ".join(e.name for e in found[:4]) if found else "")
+            ),
+        }
+
     def tool_design_progression(
         self,
         scale: str = "minor",
@@ -1691,6 +1777,8 @@ class Toolbox:
         seed: int | None = None,
         reference_track: int | None = None,
         reference_clip: int = 0,
+        mood: str | None = None,
+        bank_style: str | None = None,
     ) -> dict:
         """Chords with harmonic movement inside the loop.
 
@@ -1708,6 +1796,11 @@ class Toolbox:
         3rd and 7th. Deep and progressive house live on sevenths and ninths in
         open or rootless voicings; triads read as naive in those genres.
         """
+        if mood is not None:
+            return self._chords_from_bank(
+                track_index, clip_index, key, mood, bank_style, bars, name,
+                seed,
+            )
         # A reference clip re-voices *that* progression rather than inventing
         # one: same key, same degrees, new spacing and extensions.
         if isinstance(degrees, str) and degrees.lower() in LEARNED:

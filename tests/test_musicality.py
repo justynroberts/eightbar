@@ -1032,3 +1032,78 @@ def test_modern_rhythms_are_in_every_vocabulary(box):
         "degrees": [1, 6, 4, 5], "pattern": "tresillo_fall", "bars": 4,
     })
     assert result["pattern"] == "tresillo_fall"
+
+
+# ----------------------------------------------------------- the chord bank
+
+def _bank_fixture(tmp_path):
+    """A miniature references folder shaped exactly like the real one."""
+    import shutil
+
+    from ableton_ai import chordbank
+
+    real = chordbank.REFERENCES_DIR
+    root = tmp_path / "references"
+    (root / "pop style").mkdir(parents=True)
+    if real.is_dir():
+        source = sorted(real.glob("*.mid"))[0]
+        for name in ("A - i VI III VII - Nostalgic Hopeful.mid",
+                     "A - i iv v - Dark Mysterious.mid",
+                     "D - i VI III VII - Nostalgic Hopeful.mid"):
+            shutil.copy(source, root / name)
+            shutil.copy(source, root / "pop style" / name)
+    return chordbank.ChordBank(root=root)
+
+
+def test_chord_bank_indexes_the_filename_labels(tmp_path):
+    bank = _bank_fixture(tmp_path)
+    if not bank.entries:
+        pytest.skip("no real reference MIDI available to copy")
+
+    assert bank.summary()["progressions"] == 3
+    assert set(bank.moods()) == {"nostalgic", "hopeful", "dark", "mysterious"}
+
+    found = bank.find(mood="nostalgic")
+    assert len(found) == 2
+    assert all("nostalgic" in e.moods for e in found)
+    assert found[0].degrees == [1, 6, 3, 7]
+
+    with pytest.raises(ValueError, match="polka"):
+        bank.find(mood="polka")
+
+
+def test_chord_bank_loads_real_voicings_transposed(tmp_path):
+    bank = _bank_fixture(tmp_path)
+    if not bank.entries:
+        pytest.skip("no real reference MIDI available to copy")
+
+    entry = bank.find(mood="nostalgic", key="A")[0]
+    home = bank.load_notes(entry, key="A", bars=8)
+    up = bank.load_notes(entry, key="C", bars=8)
+    assert home and len(home) == len(up)
+    # Minimal movement: C is +3 from A, never +9 down nor -9.
+    assert up[0]["pitch"] - home[0]["pitch"] == 3
+    # Tiled to the asked-for length.
+    assert max(n["start"] for n in home) >= 16.0
+
+    comped = bank.load_notes(entry, key="A", bars=8, style="pop")
+    assert comped
+    with pytest.raises(ValueError, match="soul"):
+        bank.load_notes(entry, key="A", bars=8, style="soul")
+
+
+def test_real_reference_library_if_present():
+    """The actual folder: 696 progressions, four comped styles, sane moods."""
+    from ableton_ai import chordbank
+
+    bank = chordbank.ChordBank()
+    if not bank.entries:
+        pytest.skip("references/ not present")
+    s = bank.summary()
+    assert s["progressions"] > 600
+    assert set(s["styles"]) >= {"pop", "soul"}
+    assert s["moods"].get("nostalgic", 0) > 100
+
+    e = bank.pick(mood="dark", key="D", seed=1)
+    notes = bank.load_notes(e, key="D", bars=8)
+    assert len(notes) >= 16
