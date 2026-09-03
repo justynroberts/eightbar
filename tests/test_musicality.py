@@ -1107,3 +1107,62 @@ def test_real_reference_library_if_present():
     e = bank.pick(mood="dark", key="D", seed=1)
     notes = bank.load_notes(e, key="D", bars=8)
     assert len(notes) >= 16
+
+
+def test_reharmonisation_stays_in_key():
+    """A reharmonised breakdown must not introduce out-of-key notes.
+
+    The clip the user heard as dischordant was a stale one from before the
+    diatonic-extension fix (an F# in A minor); the current path must never
+    reproduce it. Every substituted degree is diatonic, and its chord tones --
+    at every extension -- stay in the scale.
+    """
+    from ableton_ai import composing, theory, voicings
+
+    for key, scale, main in (("A", "minor", [1, 6, 3, 7]),
+                             ("E", "minor", [1, 6, 3, 7]),
+                             ("C", "minor", [1, 4, 5, 6]),
+                             ("D", "dorian", [1, 4, 1, 5])):
+        scale_pcs = {p % 12 for p in theory.scale_pitches(key, scale, octaves=1)}
+        rehar = composing._reharmonise(main, scale)
+        assert all(1 <= d <= 7 for d in rehar), rehar
+        for degree in rehar:
+            for ext in ("triad", "seventh", "ninth"):
+                pitches = voicings.extend(
+                    theory.build_chord(key, scale, degree), ext,
+                    key=key, scale=scale,
+                )
+                off = {p % 12 for p in pitches} - scale_pcs
+                assert not off, (
+                    f"{key} {scale} reharmonised degree {degree} {ext}: "
+                    f"out-of-key {[_n(p) for p in off]}"
+                )
+
+
+def _n(pc):
+    return ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][pc % 12]
+
+
+def test_reharmonised_melody_stays_consonant():
+    """Relative substitution keeps the old melody consonant over new chords.
+
+    The whole point of reharmonising is 'familiar melody over changed harmony';
+    if the old chord tones clashed with the new chords it would defeat itself.
+    """
+    from ableton_ai import composing, theory
+
+    main = [1, 6, 3, 7]
+    rehar = composing._reharmonise(main, "minor")
+    old = [theory.build_chord("A", "minor", d) for d in main]
+    new = [theory.build_chord("A", "minor", d, extension="seventh") for d in rehar]
+
+    clashes = 0
+    for o, n in zip(old, new):
+        old_tones = {p % 12 for p in o.pitches}
+        new_tones = {p % 12 for p in n.pitches}
+        for mt in old_tones:
+            if mt in new_tones:
+                continue
+            if any((mt - nt) % 12 in (1, 11) for nt in new_tones):
+                clashes += 1
+    assert clashes == 0, f"{clashes} semitone clashes in the reharmonisation"
