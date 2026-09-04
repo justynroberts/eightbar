@@ -4432,7 +4432,7 @@ class Toolbox:
         names = [str(p.get("name", "")) for p in target.get("parameters", [])]
         applied, missing = [], []
 
-        def try_set(fragment: str, value: float) -> None:
+        def try_set(fragment: str, value: float, normalised: bool = False) -> None:
             match = next((n for n in names if fragment.lower() in n.lower()), None)
             if match is None:
                 missing.append(fragment)
@@ -4440,16 +4440,24 @@ class Toolbox:
             self.bridge.call(
                 "set_device_parameter", track_index=track_index,
                 device_index=target["index"], parameter=match,
-                value=value, normalised=False,
+                value=value, normalised=normalised,
             )
-            applied.append(f"{match}={value}")
+            applied.append(f"{match}={round(value, 3)}")
 
+        # Frequency is 0..1 (logarithmic Hz) in EQ Eight; convert, or it clamps
+        # to the top of the range and the filter does nothing useful.
         if high_pass_hz:
             try_set("1 Filter On", 1.0)
-            try_set("1 Frequency", float(high_pass_hz))
+            try_set("1 Frequency", mixing.hz_to_normalised(high_pass_hz),
+                    normalised=True)
+            # EQ Eight type index: 0/1 = low-cut (high-pass). 0 is 48dB/oct --
+            # a firm mix-cleanup cut. 3 would be a bell, 4 a notch: NOT filters.
+            try_set("1 Filter Type", 0.0)
         if low_pass_hz:
             try_set("8 Filter On", 1.0)
-            try_set("8 Frequency", float(low_pass_hz))
+            try_set("8 Frequency", mixing.hz_to_normalised(low_pass_hz),
+                    normalised=True)
+            try_set("8 Filter Type", 7.0)   # 7 = high-cut 48dB (low-pass)
 
         return {
             "track_index": track_index, "device": target.get("name"),

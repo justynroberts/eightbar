@@ -284,10 +284,18 @@ class FakeBridge:
         "Amp Release",
     ]
 
-    EQ_PARAMS = [
-        "Device On", "1 Filter On A", "1 Frequency A", "1 Gain A", "1 Resonance A",
-        "8 Filter On A", "8 Frequency A", "8 Gain A", "8 Resonance A", "Output Gain",
-    ]
+    # Faithful to Live's EQ Eight: Frequency is 0..1 (log Hz), Type is 0..7,
+    # Gain is -15..15. Modelling frequency as real Hz is what let the
+    # normalised-parameter bug (a high-pass clamped to 22kHz) hide for so long.
+    EQ_PARAMS = {
+        "Device On": (0.0, 1.0),
+        "1 Filter On A": (0.0, 1.0), "1 Frequency A": (0.0, 1.0),
+        "1 Filter Type A": (0.0, 7.0), "1 Gain A": (-15.0, 15.0),
+        "1 Resonance A": (0.0, 1.0),
+        "8 Filter On A": (0.0, 1.0), "8 Frequency A": (0.0, 1.0),
+        "8 Filter Type A": (0.0, 7.0), "8 Gain A": (-15.0, 15.0),
+        "8 Resonance A": (0.0, 1.0), "Output Gain": (-15.0, 15.0),
+    }
 
     def _device_params(self, track_index: int, device_index: int) -> list[dict]:
         track = self._track(track_index)
@@ -295,11 +303,14 @@ class FakeBridge:
             raise AbletonError(f"device_index {device_index} out of range")
         store = track.setdefault("params", {}).setdefault(device_index, {})
         device = str(track["devices"][device_index]).lower()
-        names = self.EQ_PARAMS if "eq" in device else self.STOCK_PARAMS
-        top = 22000.0 if "eq" in device else 1.0
+        if "eq" in device:
+            return [
+                {"name": n, "value": store.get(n, 0.5), "min": lo, "max": hi}
+                for n, (lo, hi) in self.EQ_PARAMS.items()
+            ]
         return [
-            {"name": n, "value": store.get(n, 0.5), "min": 0.0, "max": top}
-            for n in names
+            {"name": n, "value": store.get(n, 0.5), "min": 0.0, "max": 1.0}
+            for n in self.STOCK_PARAMS
         ]
 
     def _resolve_param_name(self, track_index, device_index, parameter) -> str:

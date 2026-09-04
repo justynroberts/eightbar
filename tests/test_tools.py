@@ -407,7 +407,13 @@ def test_add_eq_loads_one_and_sets_the_filter(box):
 
     assert "EQ" in result["device"]
     assert result["not_found"] == []
-    assert any("1 Frequency" in s and "250" in s for s in result["set"])
+    # Frequency is set as a 0..1 position (250Hz -> ~0.4), and band 1 is put
+    # into a low-cut (high-pass) mode, not left as the default bell.
+    from ableton_ai import mixing
+    want = round(mixing.hz_to_normalised(250), 3)
+    assert any("1 Frequency" in x and str(want) in x for x in result["set"]), \
+        result["set"]
+    assert any("1 Filter Type" in x for x in result["set"])
 
 
 def test_meters_say_so_when_the_transport_is_stopped(box):

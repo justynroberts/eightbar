@@ -224,3 +224,25 @@ def trims_for_bands(
         for index in contributors:
             trims[index] = min(max_trim_db, trims.get(index, 0.0) + step)
     return {i: -round(db, 2) for i, db in trims.items() if db >= 0.1}
+
+
+import math as _math
+
+# Ableton's EQ Eight and Auto Filter expose Frequency as a 0..1 parameter whose
+# display is logarithmic from ~10Hz to ~22050Hz. Writing raw Hz clamps to 1.0
+# (max) -- which is why every high-pass ended up pinned at 22kHz. Convert.
+_FREQ_MIN_HZ = 10.0
+_FREQ_MAX_HZ = 22050.0
+
+
+def hz_to_normalised(hz: float) -> float:
+    """A frequency in Hz to EQ Eight's 0..1 parameter position."""
+    hz = max(_FREQ_MIN_HZ, min(_FREQ_MAX_HZ, float(hz)))
+    lo, hi = _math.log10(_FREQ_MIN_HZ), _math.log10(_FREQ_MAX_HZ)
+    return (_math.log10(hz) - lo) / (hi - lo)
+
+
+def normalised_to_hz(value: float) -> float:
+    """The inverse -- for reading back and reporting what actually landed."""
+    lo, hi = _math.log10(_FREQ_MIN_HZ), _math.log10(_FREQ_MAX_HZ)
+    return round(10 ** (lo + max(0.0, min(1.0, value)) * (hi - lo)), 1)
