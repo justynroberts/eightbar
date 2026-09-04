@@ -1467,3 +1467,23 @@ def test_master_chain_is_idempotent(box):
     assert first == second, f"master chain grew: {first} -> {second}"
     assert sum("EQ Eight" in d for d in first) == 1
     assert sum("Limiter" in d for d in first) == 1
+
+
+def test_delete_device_and_clean_chain(box):
+    """delete_device removes one; clean_device_chain strips duplicates."""
+    box.call("create_track", {"name": "Master test", "role": "chords"})
+    # stack a doubled chain
+    for path in ("Audio Effects/EQ Eight", "Audio Effects/Compressor",
+                 "Audio Effects/EQ Eight", "Audio Effects/Compressor"):
+        box.bridge.call("load_device", track_index=0, path=path)
+    before = box.bridge.call("get_devices", track_index=0)["devices"]
+    assert len(before) == 4
+
+    r = box.call("clean_device_chain", {"track_index": 0})
+    after = [d["name"] for d in box.bridge.call("get_devices", track_index=0)["devices"]]
+    assert len(after) == 2, after
+    assert len(r["removed"]) == 2
+
+    # direct delete by index
+    box.call("delete_device", {"track_index": 0, "device_index": 0})
+    assert len(box.bridge.call("get_devices", track_index=0)["devices"]) == 1

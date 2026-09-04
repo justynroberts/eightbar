@@ -239,6 +239,7 @@ class AbletonAI(ControlSurface):
             "browse": self._browse,
             "search_browser": self._search_browser,
             "load_device": self._load_device,
+            "delete_device": self._delete_device,
             "get_devices": self._get_devices,
             "set_device_parameter": self._set_device_parameter,
             "get_mixer": self._get_mixer,
@@ -1624,6 +1625,28 @@ class AbletonAI(ControlSurface):
 
         browser.load_item(item)
         return {"track_index": track_index, "loaded": item.name}
+
+    def _delete_device(self, params):
+        """Remove a device from a track's chain by its index.
+
+        Live keeps devices in track.devices; Track.delete_device(index)
+        removes one. Deleting shifts every later device down, so a caller
+        removing several must work from the highest index down or re-read
+        between calls -- like clearing arrangement clips.
+        """
+        track_index = int(params.get("track_index", 0))
+        track = self._track_at(track_index)
+        devices = list(getattr(track, "devices", []))
+        index = int(params.get("device_index", -999))
+        if index < 0 or index >= len(devices):
+            raise IndexError(
+                "device_index " + str(index) + " out of range (0.."
+                + str(len(devices) - 1) + ")"
+            )
+        name = devices[index].name
+        track.delete_device(index)
+        return {"track_index": track_index, "deleted": name,
+                "remaining": [d.name for d in getattr(track, "devices", [])]}
 
     def _find_by_uri(self, browser, uri, node=None, depth=0):
         if depth > 12:

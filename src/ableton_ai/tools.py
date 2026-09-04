@@ -4809,6 +4809,50 @@ class Toolbox:
         except (AbletonError, AbletonNotRunning):
             pass
 
+    def tool_delete_device(self, track_index: int, device_index: int) -> dict:
+        """Remove one device from a track's chain by index.
+
+        Deleting shifts later devices down, so to remove several, delete from
+        the highest index downward (or re-read between calls). Track -1 is the
+        master, -2 and below the returns.
+        """
+        return self.bridge.call("delete_device", track_index=track_index,
+                                device_index=device_index)
+
+    def tool_clean_device_chain(self, track_index: int = -1) -> dict:
+        """Remove duplicate devices from a track, keeping the first of each.
+
+        Running mix/master twice on an older build stacked a second EQ, glue
+        and limiter on the master; this removes the extras. Deletes from the
+        highest index down so the indices stay valid mid-loop.
+        """
+        devices = self.bridge.call(
+            "get_devices", track_index=track_index)["devices"]
+        seen: set[str] = set()
+        duplicates = []
+        for dev in devices:
+            name = str(dev.get("name", ""))
+            if name in seen:
+                duplicates.append(dev["index"])
+            else:
+                seen.add(name)
+        removed = []
+        for index in sorted(duplicates, reverse=True):
+            try:
+                r = self.bridge.call("delete_device", track_index=track_index,
+                                     device_index=index)
+                removed.append(r.get("deleted"))
+            except (AbletonError, AbletonNotRunning) as exc:
+                log.warning("could not delete device %s: %s", index, exc)
+        return {
+            "track_index": track_index,
+            "removed": removed,
+            "chain": [d["name"] for d in self.bridge.call(
+                "get_devices", track_index=track_index)["devices"]],
+            "summary": (f"removed {len(removed)} duplicate device(s)"
+                        if removed else "no duplicates to remove"),
+        }
+
     def tool_add_spectrum(self, track_index: int = -1) -> dict:
         """Put a Spectrum analyser on a track (the master by default).
 

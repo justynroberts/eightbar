@@ -547,6 +547,16 @@ class FakeBridge:
         self._track(track_index)["devices"].append(path or uri or "device")
         return {"track_index": track_index, "loaded": path or uri}
 
+    def _delete_device(self, track_index: int, device_index: int) -> dict:
+        track = self._track(track_index)
+        devs = track["devices"]
+        if device_index < 0 or device_index >= len(devs):
+            raise AbletonError(f"device_index {device_index} out of range")
+        name = devs.pop(device_index)
+        track.setdefault("params", {}).pop(device_index, None)
+        return {"track_index": track_index, "deleted": name,
+                "remaining": list(devs)}
+
     def _get_devices(self, track_index: int, max_parameters: int = 512) -> dict:
         return {
             "devices": [
