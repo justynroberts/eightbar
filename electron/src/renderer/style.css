@@ -611,3 +611,18 @@ code {
   .splash-mark, .splash-word, .splash-tag { animation-duration: .01ms; }
   .splash { transition-duration: .01ms; }
 }
+
+/* The hotkey capture field: monospace, so a chord like ⌥⌘E reads clearly. */
+.hotkey-field {
+  flex: 1;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  cursor: pointer;
+}
+.hotkey-field:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+#hotkey-note { min-height: 1em; }

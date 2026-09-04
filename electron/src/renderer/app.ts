@@ -46,6 +46,7 @@ interface PublicSettings {
   apiKeyHint?: string;
   encryptionAvailable: boolean;
   claudeCliAvailable: boolean;
+  toggleHotkey: string;
 }
 
 declare global {
@@ -399,6 +400,8 @@ async function loadSettings(): Promise<void> {
   if (!result.ok || !result.value) return;
   const settings = result.value;
   $<HTMLSelectElement>('backend-select').value = settings.backend;
+  $<HTMLInputElement>('hotkey').value = prettyHotkey(settings.toggleHotkey);
+  $('hotkey').dataset.accelerator = settings.toggleHotkey;
   $('key-state').textContent = describeSettings(settings);
   if (!settings.encryptionAvailable) {
     $('key-state').textContent =
@@ -417,6 +420,78 @@ async function applySettings(patch: Record<string, unknown>): Promise<void> {
   state.textContent = describeSettings(result.value);
   $<HTMLInputElement>('api-key').value = '';
 }
+
+// --- the show/hide hotkey capture
+// Electron wants an accelerator string ("Alt+CommandOrControl+E"); the field
+// shows a readable form (⌥⌘E). Clicking arms capture: the next chord with at
+// least one modifier plus a key becomes the shortcut.
+const MOD_SYMBOL: Record<string, string> = {
+  CommandOrControl: '\u2318', Command: '\u2318', Control: '\u2303',
+  Alt: '\u2325', Shift: '\u21e7', Super: '\u2318',
+};
+function prettyHotkey(accel: string): string {
+  if (!accel) return '(none — press Reset)';
+  return accel.split('+').map((part) => MOD_SYMBOL[part] ?? part).join('');
+}
+
+function eventToAccelerator(e: KeyboardEvent): string | null {
+  const mods: string[] = [];
+  if (e.metaKey) mods.push('CommandOrControl');
+  if (e.ctrlKey && !e.metaKey) mods.push('Control');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  let key = e.key;
+  if (['Meta', 'Control', 'Alt', 'Shift'].includes(key)) return null;  // modifier alone
+  if (key === ' ') key = 'Space';
+  else if (key.length === 1) key = key.toUpperCase();
+  else key = key.charAt(0).toUpperCase() + key.slice(1);  // F1, ArrowUp...
+  if (mods.length === 0) return null;   // a global shortcut needs a modifier
+  return [...mods, key].join('+');
+}
+
+const hotkeyField = $<HTMLInputElement>('hotkey');
+let capturing = false;
+hotkeyField.addEventListener('focus', () => {
+  capturing = true;
+  hotkeyField.value = 'press keys…';
+  $('hotkey-note').textContent = 'Listening — press a modifier plus a key.';
+});
+hotkeyField.addEventListener('blur', () => {
+  capturing = false;
+  const accel = hotkeyField.dataset.accelerator ?? '';
+  hotkeyField.value = prettyHotkey(accel);
+});
+hotkeyField.addEventListener('keydown', (e) => {
+  if (!capturing) return;
+  e.preventDefault();
+  const accel = eventToAccelerator(e);
+  if (!accel) return;
+  hotkeyField.dataset.accelerator = accel;
+  hotkeyField.value = prettyHotkey(accel);
+  $('hotkey-note').textContent = 'Saving…';
+  void api.setSettings({ toggleHotkey: accel }).then((r) => {
+    if (r.ok && r.value) {
+      const took = r.value.toggleHotkey;
+      hotkeyField.dataset.accelerator = took;
+      hotkeyField.value = prettyHotkey(took);
+      $('hotkey-note').textContent = took === accel
+        ? `Set. ${prettyHotkey(took)} now shows and hides the palette.`
+        : `${prettyHotkey(accel)} was taken by another app — kept ${prettyHotkey(took)}.`;
+    } else {
+      $('hotkey-note').textContent = r.error ?? 'could not set the hotkey';
+    }
+  });
+  hotkeyField.blur();
+});
+$('hotkey-reset').addEventListener('click', () => {
+  void api.setSettings({ toggleHotkey: '' }).then((r) => {
+    if (r.ok && r.value) {
+      hotkeyField.dataset.accelerator = r.value.toggleHotkey;
+      hotkeyField.value = prettyHotkey(r.value.toggleHotkey);
+      $('hotkey-note').textContent = `Reset to ${prettyHotkey(r.value.toggleHotkey)}.`;
+    }
+  });
+});
 
 $<HTMLSelectElement>('backend-select').addEventListener('change', (event) => {
   void applySettings({ backend: (event.target as HTMLSelectElement).value });

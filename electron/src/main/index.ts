@@ -175,6 +175,50 @@ function place(bounds: Electron.Rectangle): void {
   window.setResizable(false);
 }
 
+/**
+ * (Re)register the global show/hide accelerator. Once the palette is hidden it
+ * has no button left, so this has to work from anywhere -- including inside
+ * Ableton. Returns the accelerator that actually took: the requested one, the
+ * default if that was empty, or '' if registration failed (another app owns
+ * it, or the string is not a valid accelerator).
+ */
+async function applyToggleHotkey(requested?: string): Promise<string> {
+  globalShortcut.unregisterAll();
+  const wanted = (requested ?? '').trim() || settings.DEFAULT_HOTKEY;
+  const toggle = (): void => {
+    if (window && !window.isDestroyed() && window.isVisible()) {
+      window.hide();
+    } else {
+      reveal();
+    }
+  };
+  let ok = false;
+  try {
+    ok = globalShortcut.register(wanted, toggle);
+  } catch {
+    ok = false;      // Electron throws on a malformed accelerator string.
+  }
+  // If a custom key failed, fall back to the default so the user is never
+  // left with no way to bring a hidden window back.
+  if (!ok && wanted !== settings.DEFAULT_HOTKEY) {
+    try {
+      ok = globalShortcut.register(settings.DEFAULT_HOTKEY, toggle);
+    } catch {
+      ok = false;
+    }
+    shortcutLabel = ok ? settings.DEFAULT_HOTKEY : '';
+  } else {
+    shortcutLabel = ok ? wanted : '';
+  }
+  if (!ok) {
+    process.stderr.write(
+      `[ui] could not register a show/hide hotkey (${wanted}); ` +
+        'another app may own it\n',
+    );
+  }
+  return shortcutLabel;
+}
+
 /** Bring the palette back, wherever it went. */
 function reveal(): void {
   if (!window || window.isDestroyed()) {
@@ -186,7 +230,7 @@ function reveal(): void {
   window.focus();
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // In development the stock Electron binary supplies the dock icon -- the
   // icns in the builder config only exists in packaged builds. Set ours at
   // runtime so the dev app wears the mark too.
@@ -211,22 +255,7 @@ app.whenReady().then(() => {
 
   createWindow();
 
-  // Once hidden, the palette has no button left to press, so getting it back
-  // has to work from inside Ableton. Alt-Cmd-E toggles it from anywhere.
-  const accelerator = 'Alt+CommandOrControl+E';
-  const registered = globalShortcut.register(accelerator, () => {
-    if (window && !window.isDestroyed() && window.isVisible()) {
-      window.hide();
-    } else {
-      reveal();
-    }
-  });
-  if (!registered) {
-    process.stderr.write(
-      `[ui] could not register ${accelerator}; another app has it\n`,
-    );
-  }
-  shortcutLabel = registered ? accelerator : '';
+  await applyToggleHotkey((await settings.load()).toggleHotkey);
 
   // Clicking the dock icon must bring the window back, whether it was closed,
   // minimised or merely buried.
@@ -348,10 +377,16 @@ handle('settings:set', async (patch: {
   backend?: settings.BackendChoice;
   apiKey?: string;
   model?: string;
+  toggleHotkey?: string;
 }) => {
   if (patch.backend) await settings.save({ backend: patch.backend });
   if (patch.model !== undefined) await settings.save({ model: patch.model || undefined });
   if (patch.apiKey !== undefined) await settings.setApiKey(patch.apiKey);
+  if (patch.toggleHotkey !== undefined) {
+    const took = await applyToggleHotkey(patch.toggleHotkey);
+    // Persist what actually registered, not a hotkey that silently failed.
+    await settings.save({ toggleHotkey: took || settings.DEFAULT_HOTKEY });
+  }
   // Restart the core so the new credentials are picked up immediately.
   await agent.reconfigure(await settings.sidecarEnv());
   return settings.publicView(await claudeCliAvailable());

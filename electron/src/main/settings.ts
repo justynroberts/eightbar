@@ -23,6 +23,8 @@ export interface Settings {
   apiKeyCipher?: string;
   model?: string;
   theme?: string;
+  /** Electron accelerator for the global show/hide toggle. */
+  toggleHotkey?: string;
 }
 
 export interface PublicSettings {
@@ -33,9 +35,13 @@ export interface PublicSettings {
   model?: string;
   encryptionAvailable: boolean;
   claudeCliAvailable: boolean;
+  toggleHotkey: string;
 }
 
-const DEFAULTS: Settings = { backend: 'auto' };
+// Alt-Cmd-E by default: reachable from inside Live, and unlikely to collide.
+export const DEFAULT_HOTKEY = 'Alt+CommandOrControl+E';
+
+const DEFAULTS: Settings = { backend: 'auto', toggleHotkey: DEFAULT_HOTKEY };
 
 function settingsPath(): string {
   return join(app.getPath('userData'), 'settings.json');
@@ -103,6 +109,7 @@ export async function publicView(
     model: settings.model,
     encryptionAvailable: safeStorage.isEncryptionAvailable(),
     claudeCliAvailable,
+    toggleHotkey: settings.toggleHotkey ?? DEFAULT_HOTKEY,
   };
 }
 
