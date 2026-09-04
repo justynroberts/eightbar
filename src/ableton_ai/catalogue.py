@@ -97,32 +97,40 @@ GENRE_KEYWORDS: dict[str, tuple[str, ...]] = {
 
 # The stock devices, which exist on every install and so are always a valid
 # last resort. Chosen for what they are good at, not alphabetically.
+# The stock instrument that genuinely suits each role, used only when no named
+# preset scores (rare -- there are ~1,900 presets). Each choice is the engine a
+# producer would actually reach for: Operator's FM for sub bass and brass,
+# Wavetable's morphing for evolving synth parts, the physical models (Tension
+# bowed/plucked strings, Collision mallets) for acoustic timbres, Electric for
+# keys. Being mindful where each is useful is the whole point.
 FALLBACK_DEVICES: dict[str, str] = {
     "kick": "Drums/909 Core Kit.adg",
     "drums": "Drums/909 Core Kit.adg",
     "perc": "Drums/909 Core Kit.adg",
     "snare": "Drums/909 Core Kit.adg",
     "hat": "Drums/909 Core Kit.adg",
-    "bass": "Instruments/Operator",
-    "sub": "Instruments/Operator",
-    "chords": "Instruments/Wavetable",
+    "bass": "Instruments/Operator",       # FM: tight sub and reese
+    "sub": "Instruments/Operator",        # a clean sine sub is one operator
+    "808": "Instruments/Operator",
+    "chords": "Instruments/Wavetable",    # morphing keeps held chords alive
     "pad": "Instruments/Wavetable",
     "lead": "Instruments/Wavetable",
     "hook": "Instruments/Wavetable",
     "arp": "Instruments/Wavetable",
-    "piano": "Instruments/Electric",
-    "strings": "Instruments/Tension",
-    "mallet": "Instruments/Collision",
-    "guitar": "Instruments/Tension",
-    "harp": "Instruments/Collision",
-    "choir": "Instruments/Wavetable",
-    "organ": "Instruments/Analog",
+    "keys": "Instruments/Electric",
+    "piano": "Instruments/Electric",      # the electric-piano engine
+    "strings": "Instruments/Tension",     # bowed-string physical model
+    "mallet": "Instruments/Collision",    # mallet/percussion physical model
+    "guitar": "Instruments/Tension",      # plucked-string mode
+    "harp": "Instruments/Tension",        # plucked, not a mallet -- was Collision
+    "choir": "Instruments/Meld",          # Meld's vocal-ish wavetables over a saw
+    "organ": "Instruments/Analog",        # subtractive drawbar-ish tone
     "riser": "Instruments/Wavetable",
     "impact": "Instruments/Collision",
     "fx": "Instruments/Wavetable",
-    "vocal": "Instruments/Sampler",
-    "brass": "Instruments/Analog",
-    "woodwind": "Instruments/Analog",
+    "vocal": "Instruments/Sampler",       # a placeholder to drop a vocal into
+    "brass": "Instruments/Operator",      # FM is the classic brass/horn engine
+    "woodwind": "Instruments/Operator",   # FM reeds beat a subtractive synth
 }
 
 # Categories under Sounds/ that a role should be searched in first. A match in
