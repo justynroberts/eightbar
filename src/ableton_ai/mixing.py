@@ -248,3 +248,40 @@ def normalised_to_hz(value: float) -> float:
     """The inverse -- for reading back and reporting what actually landed."""
     lo, hi = _math.log10(_FREQ_MIN_HZ), _math.log10(_FREQ_MAX_HZ)
     return round(10 ** (lo + max(0.0, min(1.0, value)) * (hi - lo)), 1)
+
+
+# The ten mix/master moves applied, in order, whenever the user asks to
+# mix/master. Each is a real engineering practice, not a preference; the
+# orchestrator (tool_mix_and_master) runs them top to bottom and reports each.
+MIX_MASTER_PRACTICES = [
+    ("gain staging",
+     "Set every track to a sane level with headroom -- the master peaking "
+     "around -6dB, nothing clipping into the chain."),
+    ("balance and pan",
+     "Levels and panning by role: kick/bass/lead centred, everything else "
+     "spread for width, so the stereo field is used and nothing masks."),
+    ("subtractive EQ",
+     "High-pass every non-low role and dip the mud -- two sounds must not "
+     "fight for the same frequencies. Cut before boosting."),
+    ("low-end mono",
+     "Sum everything below ~120Hz to mono (Utility) so the sub translates "
+     "on club systems and vinyl and the low end stays solid."),
+    ("sidechain",
+     "Duck the sustained bed (bass, pad, chords) to the kick, gently -- the "
+     "pump is rhythmic space, never on drums or transients."),
+    ("compression",
+     "Only where dynamics need evening out -- drums for punch, bass for "
+     "consistency. Melodic parts get EQ and sidechain, not gain reduction."),
+    ("reverb and delay sends",
+     "Space on return tracks by role: drums nearly dry, pads and leads wet, "
+     "high-passed so the tails do not muddy the low end."),
+    ("master bus",
+     "A gentle chain on the master: corrective EQ, glue compression doing "
+     "1-2dB, then a limiter -- glue, not loudness."),
+    ("loudness to target",
+     "Measure the master and bring it to a club-ready loudness with the "
+     "limiter, checking true peak stays under the ceiling."),
+    ("translation check",
+     "Resample and measure -- band balance, mono compatibility, crest -- and "
+     "flag anything that will not survive a small speaker or a phone."),
+]

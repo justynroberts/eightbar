@@ -318,6 +318,19 @@ class FakeBridge:
         "8 Resonance A": (0.0, 1.0), "Output Gain": (-15.0, 15.0),
     }
 
+    # Faithful to Live 12's Utility: Bass Mono is an on/off toggle plus a
+    # Bass Freq control in real Hz (50..500), NOT a normalised 0..1. Modelling
+    # it as generic 0..1 stock params is what let low-end-mono look applied
+    # while writing to a parameter that did not exist.
+    UTILITY_PARAMS = {
+        "Device On": (0.0, 1.0, 1.0),
+        "Gain": (-35.0, 35.0, 0.0),
+        "Width": (0.0, 400.0, 100.0),
+        "Mono": (0.0, 1.0, 0.0),
+        "Bass Mono": (0.0, 1.0, 0.0),
+        "Bass Freq": (50.0, 500.0, 120.0),
+    }
+
     def _device_params(self, track_index: int, device_index: int) -> list[dict]:
         track = self._track(track_index)
         if device_index >= len(track["devices"]):
@@ -328,6 +341,11 @@ class FakeBridge:
             return [
                 {"name": n, "value": store.get(n, 0.5), "min": lo, "max": hi}
                 for n, (lo, hi) in self.EQ_PARAMS.items()
+            ]
+        if "utility" in device:
+            return [
+                {"name": n, "value": store.get(n, default), "min": lo, "max": hi}
+                for n, (lo, hi, default) in self.UTILITY_PARAMS.items()
             ]
         return [
             {"name": n, "value": store.get(n, 0.5), "min": 0.0, "max": 1.0}
@@ -364,8 +382,17 @@ class FakeBridge:
         if target == "send":
             return self._set_send(track_index, send_index, value)
         name = self._resolve_param_name(track_index, device_index, parameter)
-        track.setdefault("params", {}).setdefault(device_index, {})[name] = float(value)
-        return {"name": name, "value": float(value), "min": 0.0, "max": 1.0}
+        params = {p["name"]: p for p in
+                  self._device_params(track_index, device_index)}
+        lo, hi = params[name]["min"], params[name]["max"]
+        # Match the remote script: normalised writes map 0..1 onto the real
+        # range, and every write clamps into [min, max]. A tool that writes a
+        # raw 22000 into a 0..1 frequency must land pinned at the top here too.
+        if normalised:
+            value = lo + (hi - lo) * max(0.0, min(1.0, float(value)))
+        value = max(lo, min(hi, float(value)))
+        track.setdefault("params", {}).setdefault(device_index, {})[name] = value
+        return {"name": name, "value": value, "min": lo, "max": hi}
 
     def _back_to_arrangement(self, stop_clips: bool = True) -> dict:
         self.back_to_arrangement_calls = getattr(

@@ -1066,6 +1066,8 @@ class Toolbox:
             # squashed -- compressing everything is what sounded wrong.
             step("process mix", lambda: self.tool_process_mix(
                 kick_track=made.get("Kick")))
+            # Sum the sub to mono so the low end translates on club rigs.
+            step("low-end mono", lambda: self.tool_low_end_mono())
             # Opt-in, slow: solo each track, measure its real spectrum, and
             # set its EQ from what it actually contains rather than by role
             # alone. The master carries a Spectrum either way (master chain).
@@ -4712,6 +4714,110 @@ class Toolbox:
             "note": (
                 "This is a ceiling and light glue only. Check it with "
                 "capture_audio then analyse_audio, and against a reference."
+            ),
+        }
+
+    def tool_low_end_mono(self, below_hz: float = 120.0) -> dict:
+        """Sum the low end to mono on the kick, bass and sub with Utility.
+
+        A wandering stereo sub is the classic translation killer -- it cancels
+        on mono club rigs and pushes a cutter off the groove on vinyl. Utility's
+        Bass Mono folds everything below `below_hz` to the centre while the top
+        stays wide.
+        """
+        state = self.bridge.call("get_song")
+        done = []
+        for track in state.get("tracks", []):
+            role = _role_from_name(track.get("name", ""), default=None)
+            if role not in ("kick", "bass", "sub", "808"):
+                continue
+            index = int(track["index"])
+            devices = self.bridge.call(
+                "get_devices", track_index=index)["devices"]
+            util = next((d for d in devices
+                         if "utility" in str(d.get("name", "")).lower()), None)
+            if util is None:
+                self.bridge.call("load_device", track_index=index,
+                                 path="Audio Effects/Utility")
+                devices = self.bridge.call(
+                    "get_devices", track_index=index)["devices"]
+                util = devices[-1]
+            names = [p["name"] for p in util.get("parameters", [])]
+            # Utility's Bass Mono is a toggle plus a plain-Hz frequency, NOT
+            # the log-normalised 0-1 that EQ Eight's frequency uses. Write the
+            # Hz straight through (normalised=False clamps it into the param's
+            # real range) and switch the toggle on, or the frequency does
+            # nothing.
+            freq = next((n for n in names if "bass" in n.lower()
+                         and "freq" in n.lower()), None)
+            toggle = next((n for n in names if "bass mono" in n.lower()
+                           and "freq" not in n.lower()), None)
+            if not freq:
+                continue
+            if toggle:
+                self.bridge.call(
+                    "set_device_parameter", track_index=index,
+                    device_index=util["index"], parameter=toggle,
+                    value=1.0, normalised=True)
+            self.bridge.call(
+                "set_device_parameter", track_index=index,
+                device_index=util["index"], parameter=freq,
+                value=float(below_hz), normalised=False)
+            done.append(track.get("name"))
+        return {"mono_below_hz": below_hz, "tracks": done,
+                "summary": f"low end mono below {below_hz:.0f}Hz on "
+                           f"{len(done)} track(s)"}
+
+    def tool_mix_and_master(
+        self, target_lufs: float = -8.0, translation_check: bool = True,
+    ) -> dict:
+        """Apply the ten mix/master best practices, in order.
+
+        This is what "mix/master" means: gain staging, balance and pan,
+        subtractive EQ, low-end mono, sidechain, compression, sends, the
+        master bus, loudness to target, and a translation check -- each a
+        real engineering step, run top to bottom and reported. Individual
+        steps that fail (Ableton busy, a device missing) are recorded, not
+        fatal; the rest still run.
+        """
+        steps = []
+
+        def run(name: str, fn) -> None:
+            try:
+                fn()
+                steps.append({"practice": name, "ok": True})
+            except (ToolError, AbletonError, AbletonNotRunning) as exc:
+                steps.append({"practice": name, "ok": False,
+                              "error": str(exc)[:120]})
+
+        run("gain staging", lambda: self.tool_gain_stage(adjust=True))
+        run("balance and pan", lambda: self.tool_mix_levels(apply_pan=True))
+        run("subtractive EQ + sidechain + compression",
+            lambda: self.tool_process_mix())
+        run("low-end mono", lambda: self.tool_low_end_mono())
+        run("reverb and delay sends", lambda: self.tool_set_sends_by_role())
+        run("master bus", lambda: self.tool_add_master_chain())
+        run("loudness to target",
+            lambda: self.tool_mix_to_target(rounds=2, target_lufs=target_lufs))
+        report = {}
+        if translation_check:
+            try:
+                cap = self.tool_capture_audio(bars=4, start_bar=0)
+                report["translation"] = self.tool_analyse_audio(
+                    file_path=cap["file_path"])
+                steps.append({"practice": "translation check", "ok": True})
+            except (ToolError, AbletonError, AbletonNotRunning) as exc:
+                steps.append({"practice": "translation check", "ok": False,
+                              "error": str(exc)[:120]})
+
+        ok = sum(1 for s in steps if s["ok"])
+        return {
+            "practices": [name for name, _why in mixing.MIX_MASTER_PRACTICES],
+            "steps": steps,
+            "translation": report.get("translation", {}).get("notes", []),
+            "summary": (
+                f"mix/master: {ok}/{len(steps)} steps applied -- "
+                + ", ".join(s["practice"] for s in steps if s["ok"])
             ),
         }
 

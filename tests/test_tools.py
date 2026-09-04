@@ -1487,3 +1487,32 @@ def test_delete_device_and_clean_chain(box):
     # direct delete by index
     box.call("delete_device", {"track_index": 0, "device_index": 0})
     assert len(box.bridge.call("get_devices", track_index=0)["devices"]) == 1
+
+
+def test_mix_and_master_applies_the_ten_practices(box):
+    """"mix/master" runs one flow that applies the practices in order."""
+    from ableton_ai import mixing
+    for role in ("Kick", "Bass", "Pad", "Chords", "Lead", "Hats"):
+        box.bridge.call("create_midi_track", name=role)
+
+    r = box.call("mix_and_master", {"translation_check": False})
+    # the published checklist is exactly ten, in order
+    assert r["practices"] == [n for n, _why in mixing.MIX_MASTER_PRACTICES]
+    assert len(r["practices"]) == 10
+    # every step that does not need real-time audio capture applies here
+    ok = {s["practice"] for s in r["steps"] if s["ok"]}
+    assert {"gain staging", "balance and pan", "low-end mono",
+            "master bus"} <= ok
+
+
+def test_low_end_mono_turns_bass_mono_on_at_the_right_hz(box):
+    """The sub is summed to mono with a real-Hz frequency, not a 0..1 guess."""
+    box.bridge.call("create_midi_track", name="Bass")
+    r = box.call("low_end_mono", {"below_hz": 100})
+    assert r["tracks"] == ["Bass"]
+
+    devices = box.bridge.call("get_devices", track_index=0)["devices"]
+    util = next(d for d in devices if "utility" in d["name"].lower())
+    params = {p["name"]: p["value"] for p in util["parameters"]}
+    assert params["Bass Mono"] == 1.0            # toggle on
+    assert params["Bass Freq"] == 100.0          # written as real Hz, clamped in range

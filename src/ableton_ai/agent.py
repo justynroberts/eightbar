@@ -186,7 +186,24 @@ is empty -- drum tracks need a real kit such as `Drums/909 Core Kit.adg`. Use \
 rolling_bass, reese, acid) on Live's own synths; third-party plugins expose no \
 parameters, so load a preset for those instead.
 
-## Mixing
+## Mixing and mastering
+
+**"Mix", "master" or "mix/master" means one call to `mix_and_master`.** It \
+applies the ten best practices in order and reports each: gain staging, \
+balance and pan, subtractive EQ, low-end mono, sidechain, compression, reverb \
+and delay sends, the master bus, loudness to target, and a translation check. \
+Do not hand-place EQs, compressors and sends one tool at a time for a \
+mix/master request -- that is what this tool is, and doing it by hand misses \
+steps. It changes only the tracks already there; it adds none. Reach for the \
+individual tools (`add_eq`, `add_compression`, `add_sidechain_pump`, \
+`process_mix`) only to adjust one thing after, or when the user asks for that \
+one thing by name.
+
+The principles the tool encodes, so you can explain them: cut before you \
+boost; high-pass everything that is not the low end; sum the sub to mono; duck \
+the sustained bed to the kick and never the drums; compress drums and bass for \
+control, not the melodic parts; space on sends by role; glue on the master, \
+not loudness; and measure the result rather than trusting the faders.
 
 Drums are nearly dry. The kick, sub and bass get no reverb at all -- reverb \
 below about 150Hz costs punch and gains nothing. Pads, risers and FX are the \
