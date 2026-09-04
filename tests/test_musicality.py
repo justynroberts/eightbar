@@ -1276,3 +1276,24 @@ def test_fresh_arrangement_resets_history():
     assert a._FRESH_START.search("start over")
     assert not a._FRESH_START.search("make the bass louder")
     assert not a._FRESH_START.search("change the hook")
+
+
+def test_dance_craft_only_applies_to_dance_forms():
+    """A cinematic climax must never get drum fills or a pre-drop dropout.
+
+    The bar of air and the phrase fill are dance moves; a through-composed cue
+    climbs to a written climax instead. The gate needs both a drop section and
+    a kick-driven groove, so a beatless ambient 'peak' does not count either.
+    """
+    from ableton_ai import arrangement
+
+    for tpl in ("cinematic", "classical", "jazz", "ambient", "score", "lo_fi"):
+        secs = arrangement.plan(target_seconds=240, tempo=100, template=tpl)
+        assert not arrangement.is_dance_form(secs), tpl
+        assert arrangement.phrase_marks(secs) == [], f"{tpl} got phrase fills"
+        assert arrangement.dropout_before_lifts(secs) == [], f"{tpl} got a dropout"
+
+    for tpl in ("trance", "house", "techno", "dnb"):
+        secs = arrangement.plan(target_seconds=240, tempo=138, template=tpl)
+        assert arrangement.is_dance_form(secs), tpl
+        assert arrangement.phrase_marks(secs), f"{tpl} got no phrase fills"

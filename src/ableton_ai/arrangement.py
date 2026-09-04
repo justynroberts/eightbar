@@ -199,6 +199,19 @@ SUSTAINED_FOR_DROPOUT = (
 )
 
 
+def is_dance_form(sections: list["Section"]) -> bool:
+    """True when the arrangement is built around drops.
+
+    Dance craft -- the bar of air before the drop, a fill every phrase -- is
+    exactly wrong in a through-composed cinematic or classical cue, and in a
+    beatless ambient piece whose "peak" is a swell, not a drop. It needs both
+    a drop section AND a kick-driven groove; either alone is not dance.
+    """
+    has_drop = any(s.kind == "drop" for s in sections)
+    has_beat = any("kick" in s.roles or "drums" in s.roles for s in sections)
+    return has_drop and has_beat
+
+
 def dropout_before_lifts(sections: list["Section"], min_jump: float = 0.25
                          ) -> list[dict]:
     """Where a section hands into a much louder one, drop the last bar out.
@@ -209,6 +222,8 @@ def dropout_before_lifts(sections: list["Section"], min_jump: float = 0.25
     Returns one entry per boundary that earns it: the bar to leave empty and
     the section it belongs to.
     """
+    if not is_dance_form(sections):
+        return []
     out = []
     for i, section in enumerate(sections[:-1]):
         nxt = sections[i + 1]
@@ -234,6 +249,8 @@ def phrase_marks(sections: list["Section"], phrase_bars: int = 8) -> list[dict]:
     eighth. These are positions a transition element (a Build/Perc/FX clip)
     is dropped onto; they are deliberately small and regular, not big rolls.
     """
+    if not is_dance_form(sections):
+        return []          # a cinematic climax is not marked with drum fills
     marks = []
     for section in sections:
         if section.kind in ("intro", "outro", "breakdown"):
