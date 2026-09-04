@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<!-- MIT License - Copyright (c) fintonlabs.com -->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eightbar — user guide</title>
+<meta name="description" content="Eightbar turns plain English into finished music inside Ableton Live. Install it, talk to it, and it writes the MIDI, arranges the track, and mixes it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* MIT License - Copyright (c) fintonlabs.com */
+
+/* ---- tokens: full light palette on bare :root ---------------------- */
+:root{
+  --bg:#f4f1ea; --bg-2:#ece7dc; --ink:#181510; --ink-2:#5a5344;
+  --rule:#d8d1c2; --rule-strong:#b9b09c;
+  --accent:#c2521f;                 /* the drop-amber, signature link */
+  --code-bg:#e9e3d6; --code-ink:#33302a;
+  /* the four staircase colours from the icon — the brand signature */
+  --bar-1:#e07a2c; --bar-2:#c2a413; --bar-3:#1f9e82; --bar-4:#3f6bd6;
+  --sel:rgba(194,82,31,.14);
+  --font-display:'Bricolage Grotesque','SF Pro Display',-apple-system,system-ui,sans-serif;
+  --font-mono:'IBM Plex Mono','SF Mono',ui-monospace,Menlo,monospace;
+  --measure:70ch;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme='light']){
+    --bg:#17181b; --bg-2:#1f2024; --ink:#f2efe8; --ink-2:#a7a396;
+    --rule:#2c2e33; --rule-strong:#41444b;
+    --accent:#ff9b4e; --code-bg:#101114; --code-ink:#d7d3c7;
+    --bar-1:#ff9b4e; --bar-2:#e7d44b; --bar-3:#4fd7b8; --bar-4:#7ba3ff;
+    --sel:rgba(255,155,78,.16);
+  }
+}
+:root[data-theme='dark']{
+  --bg:#17181b; --bg-2:#1f2024; --ink:#f2efe8; --ink-2:#a7a396;
+  --rule:#2c2e33; --rule-strong:#41444b;
+  --accent:#ff9b4e; --code-bg:#101114; --code-ink:#d7d3c7;
+  --bar-1:#ff9b4e; --bar-2:#e7d44b; --bar-3:#4fd7b8; --bar-4:#7ba3ff;
+  --sel:rgba(255,155,78,.16);
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--font-display); font-optical-sizing:auto;
+  font-size:18px; line-height:1.6; letter-spacing:-.003em;
+  -webkit-font-smoothing:antialiased;
+  transition:background .4s ease, color .4s ease;
+}
+::selection{background:var(--sel)}
+a{color:var(--accent); text-decoration:none; text-underline-offset:3px}
+a:hover{text-decoration:underline}
+code,kbd{font-family:var(--font-mono); font-size:.82em}
+kbd{background:var(--code-bg); border:1px solid var(--rule-strong);
+    border-radius:4px; padding:.05em .4em; color:var(--code-ink)}
+
+/* ---- top bar ------------------------------------------------------- */
+.top{
+  position:sticky; top:0; z-index:20; display:flex; align-items:center;
+  gap:16px; padding:14px clamp(20px,5vw,64px);
+  background:color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter:blur(10px); border-bottom:1px solid var(--rule);
+}
+.brand{display:flex; align-items:center; gap:11px; font-weight:700;
+  letter-spacing:-.02em; font-size:19px}
+.brand svg{display:block}
+.top nav{margin-left:auto; display:flex; gap:22px; align-items:center}
+.top nav a{color:var(--ink-2); font-size:14.5px; font-weight:500}
+.top nav a:hover{color:var(--ink); text-decoration:none}
+.iconbtn{background:none; border:1px solid var(--rule-strong);
+  color:var(--ink); width:34px; height:34px; border-radius:7px; cursor:pointer;
+  display:grid; place-items:center; font-size:15px;
+  transition:transform .12s ease, background .2s ease, border-color .2s ease}
+.iconbtn:hover{background:var(--bg-2); transform:translateY(-1px)}
+.iconbtn:active{transform:translateY(0)}
+.iconbtn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+@media(max-width:720px){.top nav a:not(.cta){display:none}}
+
+/* ---- shell: editorial column + right-hand contents rail ------------ */
+.shell{max-width:1180px; margin:0 auto; padding:0 clamp(20px,5vw,64px);
+  display:grid; grid-template-columns:minmax(0,1fr) 220px; gap:56px}
+main{min-width:0; padding-block:56px 96px}
+aside{position:sticky; top:86px; align-self:start; padding-top:56px}
+aside .lbl{font-family:var(--font-mono); font-size:11px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ink-2); margin-bottom:14px}
+aside ol{list-style:none; margin:0; padding:0; border-left:1px solid var(--rule)}
+aside li a{display:block; padding:7px 0 7px 16px; margin-left:-1px;
+  border-left:2px solid transparent; color:var(--ink-2);
+  font-size:14px; line-height:1.35; transition:color .2s, border-color .2s}
+aside li a:hover{color:var(--ink); text-decoration:none}
+aside li a.active{color:var(--ink); border-left-color:var(--accent); font-weight:600}
+@media(max-width:940px){.shell{grid-template-columns:1fr} aside{display:none}}
+
+/* ---- hero ---------------------------------------------------------- */
+.hero{padding:40px 0 24px; border-bottom:1px solid var(--rule)}
+.eyebrow{font-family:var(--font-mono); font-size:12.5px; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--ink-2); margin:0 0 22px}
+h1{font-size:clamp(3rem,9vw,6.2rem); line-height:.92; margin:0;
+  font-weight:800; letter-spacing:-.04em; font-variation-settings:'wght' 800}
+.hero .lede{font-size:clamp(1.15rem,2.4vw,1.5rem); color:var(--ink-2);
+  max-width:32ch; margin:22px 0 0; line-height:1.4}
+/* the staircase: four bars entering, the brand mark drawn large */
+.stair{display:flex; flex-direction:column; gap:10px; margin:34px 0 8px}
+.stair span{height:16px; border-radius:2px; transform-origin:left center;
+  animation:slidein .7s cubic-bezier(.2,.7,.2,1) both}
+.stair span:nth-child(1){width:100%;  background:var(--bar-1); animation-delay:.05s}
+.stair span:nth-child(2){width:78%;   background:var(--bar-2); animation-delay:.15s}
+.stair span:nth-child(3){width:56%;   background:var(--bar-3); animation-delay:.25s}
+.stair span:nth-child(4){width:34%;   background:var(--bar-4); animation-delay:.35s}
+@keyframes slidein{from{transform:scaleX(0); opacity:0}to{transform:scaleX(1); opacity:1}}
+
+/* ---- prose --------------------------------------------------------- */
+section{padding-top:64px; scroll-margin-top:80px}
+section > p, section > ul, section > ol, section > .note{max-width:var(--measure)}
+h2{font-size:clamp(1.7rem,3.6vw,2.5rem); letter-spacing:-.025em; margin:0 0 6px;
+  font-weight:700; font-variation-settings:'wght' 700}
+h2 .n{font-family:var(--font-mono); font-size:.5em; color:var(--accent);
+  vertical-align:middle; margin-right:.7em; font-weight:500}
+h3{font-size:1.2rem; margin:34px 0 8px; letter-spacing:-.01em}
+.rule{height:1px; background:var(--rule); border:0; margin:0}
+p{margin:0 0 18px}
+ul,ol{margin:0 0 18px; padding-left:1.3em}
+li{margin:6px 0}
+strong{font-weight:700}
+
+/* code blocks */
+pre{background:var(--code-bg); color:var(--code-ink); border:1px solid var(--rule);
+  border-radius:8px; padding:18px 20px; overflow-x:auto; margin:0 0 20px;
+  font-family:var(--font-mono); font-size:14px; line-height:1.7; max-width:var(--measure)}
+pre .c{color:var(--ink-2)}          /* comment / prompt marker */
+pre .q{color:var(--bar-3)}          /* quoted example */
+p code, li code{background:var(--code-bg); border:1px solid var(--rule);
+  border-radius:5px; padding:.08em .38em; color:var(--code-ink)}
+
+/* example prompt list */
+.prompts{list-style:none; padding:0; max-width:var(--measure)}
+.prompts li{border-left:3px solid var(--bar-1); padding:10px 0 10px 18px; margin:12px 0;
+  font-family:var(--font-mono); font-size:14.5px; color:var(--ink); background:var(--bg-2)}
+.prompts li:nth-child(2){border-color:var(--bar-2)}
+.prompts li:nth-child(3){border-color:var(--bar-3)}
+.prompts li:nth-child(4){border-color:var(--bar-4)}
+.prompts li:nth-child(5){border-color:var(--bar-1)}
+
+/* the ten, as a numbered ledger */
+.ten{counter-reset:step; list-style:none; padding:0; max-width:var(--measure)}
+.ten li{counter-increment:step; position:relative; padding:14px 0 14px 52px;
+  border-bottom:1px solid var(--rule)}
+.ten li::before{content:counter(step,decimal-leading-zero);
+  position:absolute; left:0; top:14px; font-family:var(--font-mono);
+  font-size:13px; color:var(--accent); font-weight:600}
+.ten b{display:block; font-weight:700}
+.ten span{color:var(--ink-2); font-size:15.5px}
+
+/* callout */
+.note{border:1px solid var(--rule-strong); border-left:4px solid var(--accent);
+  border-radius:8px; padding:16px 20px; margin:0 0 20px; background:var(--bg-2)}
+.note strong{color:var(--accent)}
+
+/* table */
+.tbl{max-width:var(--measure); overflow-x:auto; margin:0 0 20px}
+table{border-collapse:collapse; width:100%; font-size:15px}
+th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--rule); vertical-align:top}
+th{font-family:var(--font-mono); font-size:12px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--ink-2); font-weight:600}
+td code{white-space:nowrap}
+
+/* scroll-reveal */
+.reveal{opacity:0; transform:translateY(18px); transition:opacity .6s ease, transform .6s ease}
+.reveal.in{opacity:1; transform:none}
+
+footer{border-top:1px solid var(--rule); padding:40px clamp(20px,5vw,64px);
+  color:var(--ink-2); font-size:14px; display:flex; gap:18px; flex-wrap:wrap;
+  align-items:center; justify-content:space-between}
+
+/* ---- info dialog --------------------------------------------------- */
+dialog{border:1px solid var(--rule-strong); border-radius:14px; padding:0;
+  background:var(--bg); color:var(--ink); max-width:340px; width:calc(100% - 40px)}
+dialog::backdrop{background:rgba(0,0,0,.5); backdrop-filter:blur(3px)}
+dialog .in{padding:26px 26px 22px}
+dialog h3{margin:0 0 4px; font-size:1.35rem}
+dialog p{color:var(--ink-2); font-size:14.5px; margin:0 0 16px}
+dialog .close{position:absolute; top:12px; right:12px}
+.badge{display:inline-flex; align-items:center; gap:8px; font-family:var(--font-mono);
+  font-size:12px; color:var(--ink-2); border:1px solid var(--rule); border-radius:20px;
+  padding:5px 12px; margin-top:4px}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important; animation-iteration-count:1!important;
+    transition-duration:.01ms!important; scroll-behavior:auto!important}
+  .reveal{opacity:1; transform:none}
+}
+</style>
+</head>
+<body>
+<script>
+/* apply stored theme before paint — no flash */
+try{var t=localStorage.getItem('eightbar-theme'); if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}
+</script>
+
+<header class="top">
+  <span class="brand">
+    <svg width="26" height="26" viewBox="0 0 1024 1024" aria-hidden="true">
+      <rect width="1024" height="1024" rx="228" fill="#1f2024"/>
+      <rect x="112" y="200" width="800" height="120" rx="24" fill="#ff9b4e"/>
+      <rect x="252" y="380" width="660" height="120" rx="24" fill="#e7d44b"/>
+      <rect x="392" y="560" width="520" height="120" rx="24" fill="#4fd7b8"/>
+      <rect x="532" y="740" width="380" height="120" rx="24" fill="#7ba3ff"/>
+    </svg>
+    eightbar
+  </span>
+  <nav>
+    <a href="#install">Install</a>
+    <a href="#talk">Talking to it</a>
+    <a href="#mix">Mix &amp; master</a>
+    <a href="#trouble">Troubleshooting</a>
+    <button class="iconbtn" id="theme" aria-label="Toggle light and dark theme" title="Toggle theme">◐</button>
+    <button class="iconbtn" id="info" aria-label="About this app" title="About">i</button>
+  </nav>
+</header>
+
+<div class="shell">
+<main>
+
+  <div class="hero">
+    <p class="eyebrow">User guide</p>
+    <h1>eightbar</h1>
+    <div class="stair" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+    <p class="lede">Talk to Ableton Live in plain English. It writes the MIDI, arranges the track, and mixes it.</p>
+  </div>
+
+  <section id="what">
+    <h2>What it is</h2>
+    <p>Eightbar sits beside a running Ableton Live set and turns what you ask for into
+    real notes. Ask for a chord progression, a loop, a variation, or a whole six-minute
+    arrangement — it decides the pitches, the voicing and the groove, and writes them
+    straight into your project.</p>
+    <p>You never type note numbers. You say <em>"a rising i–VI–III–VII in C minor over
+    eight bars"</em> and a music-theory engine works out the rest, applies voice leading
+    so chords don't jump octaves, and hands back a track you can play.</p>
+    <p>It is not an EDM-only tool. Alongside house, techno, trance, DnB and dubstep it
+    knows cinematic, trailer, classical, chamber, jazz, song, lo-fi and score forms —
+    each shaped differently, none of them just a loop on repeat.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section id="install">
+    <h2><span class="n">01</span>Install</h2>
+    <p>Eightbar has two halves: a Python engine you run, and a small script that lives
+    inside Ableton. You install both once.</p>
+
+    <h3>1 · The engine</h3>
+<pre><span class="c"># Python 3.12, using uv</span>
+uv venv &amp;&amp; source .venv/bin/activate
+uv pip install -e ".[dev]"</pre>
+
+    <h3>2 · The remote script, into Live</h3>
+<pre>python install_remote_script.py</pre>
+    <div class="note"><strong>macOS note.</strong> The script installs into your
+    <em>User Library</em>, at <code>~/Music/Ableton/User Library/Remote Scripts/AbletonAI</code>.
+    Do not put it inside Ableton's app bundle — on macOS Sequoia and later the copy looks
+    like it worked, then the system quietly reverts the signed bundle and the script is
+    gone by the next launch.</div>
+
+    <h3>3 · Turn it on in Ableton</h3>
+    <p>Quit and reopen Live, then open <strong>Preferences → Link, Tempo &amp; MIDI →
+    Control Surface</strong> and pick <strong>AbletonAI</strong> in any free slot. Editing
+    the script later always needs a Live restart — Live only loads control surfaces at launch.</p>
+<pre><span class="c"># confirm Live is listening on port 9878</span>
+python -m ableton_ai.cli --check</pre>
+
+    <h3>4 · Pick a model backend</h3>
+    <div class="tbl"><table>
+      <tr><th>Backend</th><th>When</th><th>How</th></tr>
+      <tr><td><code>anthropic</code></td><td>Normal use</td><td><code>export ANTHROPIC_API_KEY=sk-ant-…</code></td></tr>
+      <tr><td><code>claude-cli</code></td><td>No API key</td><td>needs Claude Code on your <code>PATH</code>; uses <code>claude -p</code></td></tr>
+    </table></div>
+    <p><code>auto</code> — the default — uses the API when a key is present and falls back
+    to <code>claude -p</code> otherwise.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section id="run">
+    <h2><span class="n">02</span>Running it</h2>
+    <p>There are three ways in. The desktop app is a narrow palette that floats beside Live;
+    the web UI and the terminal are there when you want them.</p>
+<pre><span class="c"># the web UI, at http://127.0.0.1:7817</span>
+python -m ableton_ai.server
+
+<span class="c"># a terminal chat</span>
+python -m ableton_ai.cli
+
+<span class="c"># one-shot, no session</span>
+python -m ableton_ai.cli <span class="q">"make a house loop in F minor"</span></pre>
+    <p>In the terminal, <code>/state</code>, <code>/arrange</code>, <code>/tools</code>,
+    <code>/reset</code> and <code>/quit</code> do what they say. In the desktop app,
+    <kbd>⌥⌘E</kbd> shows and hides the palette from anywhere, including from inside Live.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section id="talk">
+    <h2><span class="n">03</span>Talking to it</h2>
+    <p>Ask for music the way you'd ask a session player. Genre and key are enough — it
+    infers tempo, progression, structure and articulation, does the work, and tells you
+    what it chose.</p>
+    <ul class="prompts">
+      <li>"create me a MIDI chord progression rising in C minor"</li>
+      <li>"build a dark rolling tech-house loop at 128"</li>
+      <li>"here's my loop — arrange it for a 6-minute dance track"</li>
+      <li>"make four variations of the drums, bigger each time"</li>
+      <li>"add placeholder tracks for vocals and FX"</li>
+    </ul>
+
+    <h3>The four things it does</h3>
+    <p><strong>Generate.</strong> Chords with real voicings, basslines placed against the
+    kick, drums, arps, melodies with phrase structure, hooks, build-ups, risers and impacts.</p>
+    <p><strong>Vary.</strong> Mutation operators — <code>thin</code>, <code>densify</code>,
+    <code>half_time</code>, <code>stutter</code>, <code>octave_up</code> — and named recipes
+    like <code>stripped</code>, <code>breakdown</code>, <code>pre_drop</code> and
+    <code>climax</code>. Ask for "a ladder of variations" and it fills consecutive clip slots,
+    each bigger than the last.</p>
+    <p><strong>Arrange.</strong> Say <em>"arrange this"</em> and it uses the tracks already in
+    your set — it reads them, gives each a role, picks a form that fits, and lays it on the
+    timeline. Sections land on whole eight-bar phrases, risers finish exactly on the drop,
+    impacts hit the downbeat, and there's a bar of air before the drop so it arrives out of
+    silence. It creates nothing you didn't ask for.</p>
+    <p><strong>Build.</strong> Say <em>"build me a track"</em> for an empty set and it writes
+    the whole thing: instruments on every track, parts with the right feel for the genre,
+    a full arrangement with builds and drops, and a mix.</p>
+
+    <div class="note">Eightbar keeps the model away from raw MIDI on purpose. It also picks
+    <strong>Ableton's own stock instruments</strong> — Wavetable, Drift, Operator, Analog and
+    the named presets under <code>Sounds/</code> — chosen per role and genre, so a piano is a
+    Grand for classical and a Wurli for lo-fi. Swap any of them by hand afterwards.</div>
+  </section>
+
+  <hr class="rule">
+
+  <section id="mix">
+    <h2><span class="n">04</span>Mix &amp; master</h2>
+    <p>Ask it to <strong>"mix"</strong>, <strong>"master"</strong> or
+    <strong>"mix/master"</strong> and it runs one pass that applies the ten moves a mix
+    engineer would, in order, on the tracks you already have — and reports what it did.
+    It adds no tracks and changes nothing you didn't put there.</p>
+    <ol class="ten">
+      <li><b>Gain staging</b><span>Headroom on the master, nothing clipping into the chain.</span></li>
+      <li><b>Balance and pan</b><span>Levels and stereo placement by role — kick, bass and lead centred, the rest spread for width.</span></li>
+      <li><b>Subtractive EQ</b><span>High-pass everything that isn't the low end, and cut before you boost, so two sounds never fight for one frequency.</span></li>
+      <li><b>Low-end mono</b><span>Sum the sub to mono so the bottom translates on club rigs and vinyl.</span></li>
+      <li><b>Sidechain</b><span>Duck the sustained bed to the kick — gently, and never the drums or transients.</span></li>
+      <li><b>Compression</b><span>Only where dynamics need it: drums for punch, bass for consistency. Melodic parts get EQ and space, not gain reduction.</span></li>
+      <li><b>Reverb &amp; delay sends</b><span>Space by role on return tracks — drums nearly dry, pads and leads wet.</span></li>
+      <li><b>Master bus</b><span>Corrective EQ, gentle glue compression, then a limiter. Glue, not loudness.</span></li>
+      <li><b>Loudness to target</b><span>Measure the master and bring it to a club-ready level, true peak under the ceiling.</span></li>
+      <li><b>Translation check</b><span>Resample and flag anything that won't survive a phone or a small speaker.</span></li>
+    </ol>
+    <p>You can still reach for one move on its own afterwards — "high-pass the pad", "less
+    sidechain on the bass" — and it'll do just that.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section id="trouble">
+    <h2><span class="n">05</span>Troubleshooting</h2>
+    <h3>"Ableton did not respond"</h3>
+    <p>Check the control surface is selected (Preferences → Control Surface → AbletonAI) and
+    that Live's status bar reads <code>listening on port 9878</code>. Then
+    <code>python -m ableton_ai.cli --check</code>.</p>
+    <h3>Nothing plays</h3>
+    <p>Generated MIDI is silent until the track has an instrument. Building a track loads one
+    for you; if you only generated notes onto an empty track, load a device or ask it to.</p>
+    <h3>My edit to the script did nothing</h3>
+    <p>Live only loads control surfaces at launch. Quit and reopen Live after any change to
+    the remote script.</p>
+    <h3>Two "Ableton" scripts in the dropdown</h3>
+    <p>Ours is <strong>AbletonAI</strong> on port 9878. An unrelated older
+    <em>AbletonMCP</em> on 9877 may also be installed; they coexist — just pick AbletonAI.</p>
+    <div class="note"><strong>Before you reload or restart Live</strong>, save. Live has no
+    "unsaved changes" flag of its own and there's no undo across a restart — an unsaved
+    session doesn't survive one.</div>
+  </section>
+
+</main>
+
+<aside>
+  <p class="lbl">On this page</p>
+  <ol>
+    <li><a href="#what">What it is</a></li>
+    <li><a href="#install">Install</a></li>
+    <li><a href="#run">Running it</a></li>
+    <li><a href="#talk">Talking to it</a></li>
+    <li><a href="#mix">Mix &amp; master</a></li>
+    <li><a href="#trouble">Troubleshooting</a></li>
+  </ol>
+</aside>
+</div>
+
+<footer>
+  <span>Eightbar — natural-language music production for Ableton Live 12.</span>
+  <span>MIT licensed.</span>
+</footer>
+
+<dialog id="about">
+  <div class="in">
+    <button class="iconbtn close" id="aboutClose" aria-label="Close">✕</button>
+    <h3>eightbar</h3>
+    <p>Natural-language music production for Ableton Live. Ask for it; it plays.</p>
+    <p style="margin-bottom:6px">Made by <a href="https://fintonlabs.com" target="_blank" rel="noopener">FintonLabs</a>.</p>
+    <span class="badge">version 0.1.0</span>
+  </div>
+</dialog>
+
+<script>
+/* theme toggle */
+(function(){
+  var root=document.documentElement, btn=document.getElementById('theme');
+  function current(){return root.getAttribute('data-theme') ||
+    (matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');}
+  btn.addEventListener('click',function(){
+    var next=current()==='dark'?'light':'dark';
+    root.setAttribute('data-theme',next);
+    try{localStorage.setItem('eightbar-theme',next);}catch(e){}
+  });
+})();
+
+/* about dialog */
+(function(){
+  var dlg=document.getElementById('about');
+  document.getElementById('info').addEventListener('click',function(){dlg.showModal();});
+  document.getElementById('aboutClose').addEventListener('click',function(){dlg.close();});
+  dlg.addEventListener('click',function(e){
+    var r=dlg.getBoundingClientRect();
+    if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dlg.close();
+  });
+})();
+
+/* scroll reveal + active section in the rail */
+(function(){
+  var secs=document.querySelectorAll('section');
+  secs.forEach(function(s){s.classList.add('reveal');});
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(e){if(e.isIntersecting)e.target.classList.add('in');});
+  },{threshold:.08});
+  secs.forEach(function(s){io.observe(s);});
+
+  var links=[].slice.call(document.querySelectorAll('aside a'));
+  var map={}; links.forEach(function(a){map[a.getAttribute('href').slice(1)]=a;});
+  var spy=new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if(e.isIntersecting){links.forEach(function(a){a.classList.remove('active');});
+        var a=map[e.target.id]; if(a)a.classList.add('active');}
+    });
+  },{rootMargin:'-40% 0px -55% 0px'});
+  secs.forEach(function(s){if(s.id)spy.observe(s);});
+})();
+</script>
+</body>
+</html>
