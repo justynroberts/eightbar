@@ -4559,9 +4559,9 @@ class Toolbox:
         self,
         track_index: int,
         clip_index: int = 0,
-        depth: float = 0.6,
+        depth: float = 0.4,
         bars: float | None = None,
-        shape: str = "sharp",
+        shape: str = "smooth",
     ) -> dict:
         """Duck a track on every beat, the way a sidechained pad breathes.
 
@@ -4603,6 +4603,33 @@ class Toolbox:
         result["beats_pumped"] = int(total_beats)
         result["depth"] = depth
         return result
+
+    def tool_clear_sidechain(
+        self, track_index: int, clip_index: int | None = None,
+    ) -> dict:
+        """Remove the sidechain pump (volume envelope) from a track's clips.
+
+        The pump is written into each clip's volume envelope, so this clears
+        that envelope -- on one clip, or on every session clip of the track.
+        Use it when a part is pumping that should not, or when the duck is too
+        deep and you want to start over.
+        """
+        state = self.bridge.call("get_song")
+        track = next((t for t in state.get("tracks", [])
+                      if int(t["index"]) == track_index), None)
+        slots = ([clip_index] if clip_index is not None
+                 else [int(c["slot"]) for c in (track.get("clips") or [])]
+                 if track else [])
+        cleared = []
+        for ci in slots:
+            try:
+                self.bridge.call("clear_clip_envelope", track_index=track_index,
+                                 clip_index=ci, all=False, target="volume")
+                cleared.append(ci)
+            except (AbletonError, AbletonNotRunning) as exc:
+                log.warning("clear_sidechain slot %s: %s", ci, exc)
+        return {"track_index": track_index, "cleared_slots": cleared,
+                "summary": f"cleared the pump from {len(cleared)} clip(s)"}
 
     def tool_add_master_chain(self, ceiling_db: float = -0.3) -> dict:
         """Put a conservative chain on the master: EQ, glue, then a limiter.

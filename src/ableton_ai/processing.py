@@ -78,16 +78,18 @@ EQ_RULES: dict[str, EQMove] = {
 # sound of dance music, and it belongs to exactly these roles -- never the
 # drums (which the kick lives inside), never the transient leads.
 SIDECHAIN_ROLES: tuple[str, ...] = (
-    "bass", "sub", "808", "pad", "chords", "strings", "choir", "keys", "organ",
+    "bass", "sub", "808", "pad", "chords",
 )
 
-# How hard each ducks. The bass follows the kick most closely (they share the
-# low end and must not collide); pads pump the most for effect; chords sit in
-# between.
+# How hard each ducks, as a fraction. These are deliberately GENTLE -- a
+# musical trance pump breathes, it does not chop. The bass ducks most (it
+# shares the kick's low end and must clear it); the pad a little less; chords
+# least. Deeper than this and the whole mix sounds like it is pumping, which
+# is the "way too much sidechain" the user heard. Never drums, hats or perc:
+# the kick lives inside those and a transient does not pump.
 SIDECHAIN_DEPTH: dict[str, float] = {
-    "bass": 0.55, "sub": 0.6, "808": 0.6,
-    "pad": 0.7, "strings": 0.65, "choir": 0.6,
-    "chords": 0.5, "keys": 0.5, "organ": 0.5,
+    "bass": 0.45, "sub": 0.5, "808": 0.5,
+    "pad": 0.4, "chords": 0.3,
 }
 
 
