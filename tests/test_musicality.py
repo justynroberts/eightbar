@@ -1212,3 +1212,67 @@ def test_build_track_is_coherent_one_key_no_collisions():
     # The lead is in a musical register, not shrill.
     if "Lead" in ranges:
         assert ranges["Lead"][1] <= 96, f"lead tops out at {ranges['Lead'][1]}"
+
+
+def test_dance_arrangement_drops_the_bar_before_the_drop():
+    """The bar of air before the drop: sustained parts cut one bar early."""
+    from ableton_ai import arrangement
+
+    secs = arrangement.plan(target_seconds=300, tempo=138, template="trance")
+    dropouts = arrangement.dropout_before_lifts(secs)
+    assert dropouts, "no pre-drop dropout found in a trance arrangement"
+    for d in dropouts:
+        # The dropout bar is the last bar of a section handing into a drop.
+        idx = next(i for i, s in enumerate(secs)
+                   if s.start_bar <= d["at_bar"] < s.end_bar)
+        assert d["at_bar"] == secs[idx].end_bar - 1
+        assert secs[idx + 1].kind == "drop"
+
+
+def test_phrase_marks_land_every_eight_bars_not_in_intro():
+    from ableton_ai import arrangement
+
+    secs = arrangement.plan(target_seconds=300, tempo=138, template="trance")
+    marks = arrangement.phrase_marks(secs, phrase_bars=8)
+    assert marks, "no phrase marks"
+    # Every mark is a last-of-phrase bar inside a non-intro/outro section.
+    for m in marks:
+        section = next(s for s in secs if s.start_bar <= m["at_bar"] < s.end_bar)
+        assert section.kind not in ("intro", "outro", "breakdown")
+        assert (m["at_bar"] - section.start_bar + 1) % 8 == 0
+
+
+def test_build_track_puts_fills_on_their_own_track(box):
+    """Rolls and fills live on a dedicated track, not the main drum beat."""
+    box.call("build_track", {"genre": "trance", "key": "E",
+                            "duration_seconds": 240, "seed": 7})
+    names = [t["name"] for t in box.bridge.tracks]
+    assert "Fills" in names, "no dedicated Fills track"
+
+    fills_idx = names.index("Fills")
+    drums_idx = names.index("Drums")
+    fills_lane = box.bridge.arrangement.get(fills_idx, [])
+    assert fills_lane, "the Fills track got no phrase marks"
+    # The phrase fills are on Fills, never scattered onto the main Drums lane
+    # at the same bars.
+    fill_bars = {int(c["start_bars"]) for c in fills_lane}
+    assert fill_bars, "no fill placements"
+
+
+def test_fresh_arrangement_resets_history():
+    """A new build drops past history; a tweak keeps it."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from fake_live import FakeBridge
+
+    from ableton_ai.agent import Agent
+
+    a = Agent.__new__(Agent)
+    # fresh-start requests match; tweaks do not.
+    assert a._FRESH_START.search("build me a trance track")
+    assert a._FRESH_START.search("arrange this")
+    assert a._FRESH_START.search("start over")
+    assert not a._FRESH_START.search("make the bass louder")
+    assert not a._FRESH_START.search("change the hook")

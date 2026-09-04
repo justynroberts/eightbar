@@ -191,6 +191,84 @@ class Section:
 # Weights are proportional -- the planner scales them to hit the target length.
 # A "build" section always ends by handing over to the drop that follows it, so
 # risers belong there and impacts belong on the drop's first bar.
+# Roles that sustain and so can "drop out" for the bar before a big lift --
+# the classic moment of air before a drop. Drums are handled separately.
+SUSTAINED_FOR_DROPOUT = (
+    "bass", "sub", "808", "chords", "pad", "keys", "strings", "arp", "lead",
+    "hook", "melody", "organ", "guitar",
+)
+
+
+def dropout_before_lifts(sections: list["Section"], min_jump: float = 0.25
+                         ) -> list[dict]:
+    """Where a section hands into a much louder one, drop the last bar out.
+
+    The single most recognisable move in dance arrangement: right before the
+    drop, everything cuts for a bar (or the beat does) and only a riser/vocal
+    tail carries over, so the downbeat of the drop hits like a door opening.
+    Returns one entry per boundary that earns it: the bar to leave empty and
+    the section it belongs to.
+    """
+    out = []
+    for i, section in enumerate(sections[:-1]):
+        nxt = sections[i + 1]
+        # The canonical dropout: a build handing into a drop. Also any sharp
+        # energy lift into a drop, even from a groove.
+        into_drop = nxt.kind == "drop"
+        from_build = section.kind == "build"
+        if into_drop and (from_build or nxt.energy - section.energy >= min_jump):
+            out.append({
+                "at_bar": section.end_bar - 1,
+                "bars": 1,
+                "section": section.name,
+                "why": "the bar of air before the drop",
+            })
+    return out
+
+
+def phrase_marks(sections: list["Section"], phrase_bars: int = 8) -> list[dict]:
+    """Every `phrase_bars`, a small transition -- a fill, a double snare.
+
+    Dance music keeps a loop interesting by marking each phrase, not by
+    changing the loop: a fill or an open hat lands on the last bar of every
+    eighth. These are positions a transition element (a Build/Perc/FX clip)
+    is dropped onto; they are deliberately small and regular, not big rolls.
+    """
+    marks = []
+    for section in sections:
+        if section.kind in ("intro", "outro", "breakdown"):
+            continue
+        # Mark the last bar of each phrase inside the section, except the very
+        # last (a dropout may already own it).
+        bar = section.start_bar + phrase_bars - 1
+        while bar < section.end_bar - 1:
+            marks.append({"at_bar": bar, "section": section.name})
+            bar += phrase_bars
+    return marks
+
+
+def intro_layers(sections: list["Section"], phrase_bars: int = 8) -> list[dict]:
+    """An intro brings elements in one phrase at a time, not all at once.
+
+    Returns, for the intro, the bar at which each successive role should first
+    appear -- kick alone, then hats, then bass, then the melodic parts -- so
+    the track assembles in front of the listener the way a DJ-friendly intro
+    does.
+    """
+    intro = next((s for s in sections if s.kind == "intro"), None)
+    if intro is None or intro.bars < phrase_bars * 2:
+        return []
+    # Order roles from foundation upward; each enters a phrase later.
+    order = ["kick", "hat", "perc", "bass", "sub", "chords", "pad",
+             "arp", "lead", "hook", "melody"]
+    present = [r for r in order if r in intro.roles]
+    layers = []
+    for step, role in enumerate(present):
+        at = intro.start_bar + min(step, intro.bars // phrase_bars - 1) * phrase_bars
+        layers.append({"role": role, "at_bar": at})
+    return layers
+
+
 TEMPLATES: dict[str, list[tuple[str, float, float, tuple[str, ...]]]] = {
     # --- forms that are not EDM ------------------------------------------
     # Cinematic writing builds once across the whole piece rather than

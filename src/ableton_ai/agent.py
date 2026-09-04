@@ -6,6 +6,7 @@ import json
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from .bridge import AbletonBridge
@@ -246,10 +247,37 @@ class Agent:
     def reset(self) -> None:
         self.messages = []
 
-    # ------------------------------------------------------------------
+    # Requests that begin a whole new piece rather than tweak the current one.
+    # The system prompt already carries every rule and preference, so a reset
+    # here starts clean without losing anything -- and keeps the token cost of
+    # a long session from riding on every fresh build.
+    _FRESH_START = re.compile(
+        # "arrange" / "rearrange" on their own always start fresh -- the user's
+        # own word for a whole new pass over the set.
+        r"\b(re)?arrange\b"
+        # build/make/create a whole thing.
+        r"|\b(build|make|create|generate|write|produce)\b.{0,30}"
+        r"\b(track|tune|song|beat|arrangement|set|idea|loop|drop)\b"
+        # explicit fresh-start words.
+        r"|^\s*(new|start over|fresh|clear|reset|from scratch)\b",
+        re.IGNORECASE,
+    )
+
+    # A safety net regardless of intent: never carry more than this many prior
+    # turns into a request, so a long session cannot bloat the context.
+    _MAX_HISTORY_MESSAGES = 24
 
     def run(self, user_message: str) -> Iterator[Event]:
         """Handle one user turn, yielding events as work happens."""
+        # A fresh arrangement drops the past: the rules live in the system
+        # prompt, so the model needs the request, not the history.
+        if self._FRESH_START.search(user_message) and self.messages:
+            self.reset()
+        elif len(self.messages) > self._MAX_HISTORY_MESSAGES:
+            # Trim oldest, keeping whole turns, so a marathon session stays
+            # cheap without losing the recent thread.
+            self.messages = self.messages[-self._MAX_HISTORY_MESSAGES:]
+
         self.messages.append({"role": "user", "content": user_message})
 
         for _iteration in range(self.max_iterations):

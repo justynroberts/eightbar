@@ -474,3 +474,35 @@ with no name to choose from, so it is never the better *default*. The catalogue
 demotes `Plugins/` by 4 points, so stock always wins a tie, but a plugin stays
 findable when the user names one ("use Serum"). The user can swap any stock
 preset out by hand afterwards.
+
+## Dance arrangement: craft, not flat tiling
+
+`arrange_existing` is "arrange what I have" — it clears the arrangement and
+replaces it using only the tracks present (creates nothing), choosing a form
+from the roles it finds. `arrange_to_timeline` (which it calls) now adds the
+moves that make dance arrangement read as arranged rather than looped, all
+from `arrangement.py`:
+
+- **The bar of air before the drop** — `dropout_before_lifts` marks the last
+  bar of a build (or any section handing into a drop); sustained roles
+  (`SUSTAINED_FOR_DROPOUT`) are placed one bar short there, so the drop's
+  downbeat arrives out of silence.
+- **A small mark every phrase** — `phrase_marks` returns the last bar of each
+  8-bar phrase in grooves/drops; a short perc/fx clip is dropped there. The
+  same small mark each time, not a different roll — regular is what the ear
+  locks onto. Never the impact (a one-shot), riser (spans into the drop) or
+  main drums.
+- **Progressive intro** — `intro_layers` brings elements in one phrase at a
+  time.
+
+Rolls and fills live on their **own track** (`build_track` adds a `Fills`
+track, role perc), never layered on the main Drums beat, so the instrument
+behind them can be swapped without touching the groove.
+
+## Token hygiene: a fresh arrangement forgets the past
+
+The agent's system prompt already carries every rule and preference, so history
+is only the current thread. `Agent._FRESH_START` matches "arrange…",
+"build a track", "start over" and resets `self.messages` before such a request —
+a new piece costs no tokens for the old one. `_MAX_HISTORY_MESSAGES` caps a long
+tweaking session regardless. A tweak ("make the bass louder") keeps context.

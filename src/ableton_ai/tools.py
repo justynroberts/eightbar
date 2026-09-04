@@ -815,6 +815,10 @@ class Toolbox:
             ("Chords", "chords"), ("Hook", "hook"), ("Lead", "lead"),
             ("Melody", "lead"), ("Riser", "riser"), ("Impact", "impact"),
             ("Build", "drums"),
+            # Rolls and phrase fills get their OWN track (role perc), never
+            # layered onto the main Drums beat -- so the instrument behind
+            # them can be swapped without touching the groove.
+            ("Fills", "perc"),
         ]
         # Reuse this build's own tracks when they already exist: running
         # build_track twice used to create a second complete band next to the
@@ -903,6 +907,14 @@ class Toolbox:
                 made["Riser"], bars=8, key=key, scale=mode))
         if "Impact" in made:
             step("impact", lambda: self.tool_create_impact_clip(made["Impact"]))
+        if "Fills" in made:
+            # A short fill and a double-snare on the Fills track: the phrase-
+            # mark pass drops these onto every eighth bar. Small, on their own
+            # track, re-instrumentable.
+            step("phrase fill", lambda: self.tool_create_drum_fill(
+                made["Fills"], clip_index=0, bars=1, style="snare", seed=seed))
+            step("double snare", lambda: self.tool_create_snare_roll(
+                made["Fills"], clip_index=1, bars=1, seed=seed))
         if "Build" in made:
             step("build-up", lambda: self.tool_create_buildup_clip(
                 made["Build"], bars=8, seed=seed))
@@ -937,7 +949,7 @@ class Toolbox:
         role_of = {"Kick": "kick", "Drums": "drums", "Bass": "bass",
                    "Chords": "chords", "Hook": "hook", "Lead": "lead",
                    "Melody": "arp", "Riser": "riser", "Impact": "impact",
-                   "Build": "riser"}
+                   "Build": "riser", "Fills": "perc"}
         entries = []
         for name, index in made.items():
             entry: dict[str, Any] = {"track_index": index, "role": role_of[name]}
@@ -2627,6 +2639,23 @@ class Toolbox:
         # Which roles the caller actually supplied a track for.
         available = {str(e.get("role", "")).lower() for e in tracks}
 
+        # Dance-arrangement detail: a bar of air before each drop, and a small
+        # transition mark every phrase. Built from Section objects so the same
+        # craft applies however the caller described the sections.
+        section_objs = [
+            arrangement.Section(
+                name=str(sec.get("name", "?")),
+                start_bar=int(round(float(sec["start_bar"]))),
+                bars=int(round(float(sec["bars"]))),
+                energy=float(sec.get("energy", 0.5)),
+                roles=[str(r).lower() for r in sec.get("roles", [])],
+            )
+            for sec in sections
+        ]
+        dropouts = arrangement.dropout_before_lifts(section_objs)
+        dropout_bars = {int(d["at_bar"]) for d in dropouts}
+        phrase_bars_set = {int(m["at_bar"]) for m in arrangement.phrase_marks(section_objs)}
+
         placements = []
         # Timeline-sourced tracks are placed in one call each, at the end: the
         # source has to survive until every copy is made.
@@ -2686,7 +2715,17 @@ class Toolbox:
                     repeats = 1
                     at = max(0.0, start_bar + bars - clip_bars)
                 else:
-                    repeats = max(1, int(round(bars / clip_bars)))
+                    span = bars
+                    # Leave the bar of air before a drop: a sustained part
+                    # stops one bar short of the boundary so the drop's
+                    # downbeat arrives out of silence. Drums keep going (the
+                    # kick dropping out is the drummer's call, handled by the
+                    # build fill), but bass/chords/pads/leads cut.
+                    end_bar = int(round(start_bar + bars))
+                    if (end_bar - 1 in dropout_bars
+                            and role in arrangement.SUSTAINED_FOR_DROPOUT):
+                        span = max(clip_bars, bars - 1)
+                    repeats = max(1, int(round(span / clip_bars)))
                     at = start_bar
 
                 if entry.get("from_timeline"):
@@ -2711,6 +2750,44 @@ class Toolbox:
                         "repeats": repeats,
                     }
                 )
+
+        # Phrase-boundary detail: a small transition (a fill, a snare hit) on
+        # every eighth bar, dropped from whichever track carries short
+        # transition material -- a Build/Perc/FX with a clip of a couple of
+        # bars or less. Deliberately the SAME small mark each phrase, not a
+        # different roll every time; regular is what a listener locks onto.
+        fill_placed = 0
+        transition = None
+        for entry in tracks:
+            role = str(entry.get("role", "")).lower()
+            ti = int(entry["track_index"])
+            for ci in _slots_for(entry):
+                # Only genuine fill material: a short perc or fx clip. Never
+                # the impact (a one-shot on the drop), the riser (placed to
+                # span into the drop) or the main drums (the beat itself) --
+                # using those as phrase fills scattered them across every bar.
+                if (lengths.get((ti, ci), 99) <= 2.0
+                        and role in ("perc", "fx")
+                        and role not in ONE_SHOT_ROLES
+                        and role not in SPAN_ROLES):
+                    transition = (ti, ci, lengths[(ti, ci)])
+                    break
+            if transition:
+                break
+        if transition and phrase_bars_set:
+            ti, ci, clen = transition
+            for bar in sorted(phrase_bars_set):
+                # Land the transition so it finishes on the phrase boundary,
+                # like a fill leading into the next eight.
+                at = max(0.0, bar + 1 - clen)
+                try:
+                    self.bridge.call(
+                        "duplicate_clip_to_arrangement",
+                        track_index=ti, clip_index=ci, start_bar=at, repeats=1,
+                    )
+                    fill_placed += 1
+                except (AbletonError, AbletonNotRunning):
+                    pass
 
         for ti, specs in timeline_spread.items():
             try:
@@ -2746,6 +2823,8 @@ class Toolbox:
             "duration_seconds": summary.get("duration_seconds"),
             "detail": placements[:60],
             "markers": [m["name"] for m in markers],
+            "dropouts": [d["at_bar"] for d in dropouts],
+            "phrase_fills": fill_placed,
         }
         if skipped_tracks:
             result["skipped_tracks"] = skipped_tracks
