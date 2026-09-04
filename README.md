@@ -1,8 +1,10 @@
-# ableton-ai
+# eightbar
 
 Natural-language control of a running Ableton Live set. Ask for a chord
 progression, a loop, a variation or a whole six-minute arrangement, and it
 writes MIDI straight into your project.
+
+**User guide → https://justynroberts.github.io/eightbar/**
 
 Built for EDM: build-ups, breakdowns, drops, hooks, risers and impacts are
 first-class, and every looped part can be given a ladder of variations so a
