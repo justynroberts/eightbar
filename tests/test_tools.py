@@ -1451,3 +1451,19 @@ def test_hot_band_flags_only_a_real_peak():
     peaky = {"sub": -20, "bass": -8, "mid": -22, "high": -21}
     assert Toolbox._hot_band(flat) is None
     assert Toolbox._hot_band(peaky) == "bass"
+
+
+def test_master_chain_is_idempotent(box):
+    """Running mix/master twice must not stack a second EQ/glue/limiter.
+
+    A doubled master chain over-processes the mix -- and a stale sidecar
+    re-running the buggy EQ was how a high-pass got pinned at 22kHz and
+    silenced the pad, kick and leads.
+    """
+    box.call("add_master_chain", {})
+    first = [d["name"] for d in box.bridge.call("get_devices", track_index=-1)["devices"]]
+    box.call("add_master_chain", {})
+    second = [d["name"] for d in box.bridge.call("get_devices", track_index=-1)["devices"]]
+    assert first == second, f"master chain grew: {first} -> {second}"
+    assert sum("EQ Eight" in d for d in first) == 1
+    assert sum("Limiter" in d for d in first) == 1

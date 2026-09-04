@@ -4614,8 +4614,24 @@ class Toolbox:
         Track index -1 is the master; -2 and below are the return tracks.
         """
         MASTER = -1
-        loaded, failed = [], []
-        for path in (mixing.EQ_DEVICE, mixing.GLUE_DEVICE, mixing.LIMITER_DEVICE):
+        # Idempotent: a master that already has these does not get a second
+        # stack. Running mix/master twice was doubling the chain -- two EQs,
+        # two glue compressors, two limiters -- which over-processes the mix.
+        present = {
+            str(d.get("name", "")).lower()
+            for d in self.bridge.call("get_devices", track_index=MASTER)["devices"]
+        }
+        wanted = [
+            ("eq eight", mixing.EQ_DEVICE),
+            ("glue compressor", mixing.GLUE_DEVICE),
+            ("limiter", mixing.LIMITER_DEVICE),
+            ("spectrum", mixing.SPECTRUM_DEVICE),
+        ]
+        loaded, failed, skipped = [], [], []
+        for name, path in wanted:
+            if any(name in p for p in present):
+                skipped.append(path)
+                continue
             try:
                 result = self.bridge.call("load_device", track_index=MASTER,
                                           path=path)
