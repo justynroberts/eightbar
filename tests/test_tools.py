@@ -1341,3 +1341,53 @@ def test_compose_theme_tolerates_bare_track_entries(box):
                                   "degrees": "1-3-7-5",
                                   "tracks": [{"track_index": 0, "role": "lead"}]})
     assert r["written"], r
+
+
+def test_arrange_existing_handles_timeline_only_material():
+    """Every Session slot empty, material only on the arrangement -- it must
+    still arrange, and clear_first must not destroy the only copy.
+
+    This was the exact case that found nothing: arrange_existing places
+    Session clips, and a set whose parts live solely on the timeline has no
+    Session clip to place. The timeline-source fallback repeats that material
+    instead.
+    """
+    box = Toolbox(FakeBridge())
+    b = box.bridge
+    for name, role in (("Kick", "kick"), ("Bass", "bass"),
+                       ("Chords", "chords"), ("Lead", "lead")):
+        box.call("create_track", {"name": name, "role": role})
+    for i in range(4):
+        b.arrangement[i] = [{"name": f"c{i}", "start_bars": 0.0,
+                             "length_bars": 8.0, "start_beats": 0.0,
+                             "end_beats": 32.0}]
+    for t in b.tracks:               # every session slot empty
+        t["clips"] = {}
+
+    result = box.call("arrange_existing", {"target_seconds": 120,
+                                          "template": "techno"})
+    assert len(result["arranged"]) == 4, result
+    # Each track's single timeline clip was spread across the sections.
+    for i in range(4):
+        assert len(b.arrangement.get(i, [])) > 1, f"track {i} not spread"
+
+
+def test_arrange_existing_mixed_session_and_timeline():
+    """Session-only, timeline-only and both, side by side, all arrange."""
+    box = Toolbox(FakeBridge())
+    b = box.bridge
+    for name, role in (("Kick", "kick"), ("Bass", "bass"), ("Chords", "chords")):
+        box.call("create_track", {"name": name, "role": role})
+    b.call("create_clip", track_index=0, clip_index=0, length_beats=16.0,
+           notes=[{"pitch": 36, "start": 0, "duration": 1, "velocity": 110}],
+           name="kick")
+    b.arrangement[1] = [{"name": "bass", "start_bars": 0.0, "length_bars": 8.0,
+                         "start_beats": 0.0, "end_beats": 32.0}]   # timeline-only
+    b.call("create_clip", track_index=2, clip_index=0, length_beats=32.0,
+           notes=[{"pitch": 60, "start": 0, "duration": 4, "velocity": 90}],
+           name="chords")
+
+    result = box.call("arrange_existing", {"target_seconds": 90,
+                                          "template": "techno"})
+    assert {a["role"] for a in result["arranged"]} == {"kick", "bass", "chords"}
+    assert len(b.arrangement.get(1, [])) > 1, "timeline-only bass not spread"
