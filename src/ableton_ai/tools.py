@@ -2398,10 +2398,15 @@ class Toolbox:
                 continue
             role = _role_from_name(track.get("name", ""), default=None)
             if not role:
+                # A track with material but an unreadable name ("Main Midi",
+                # "Offbeat") is not noise -- dropping it is why a verse ended
+                # up as just hi-hats. Treat it as a core element so it plays
+                # through the song; the user can rename it to be more precise.
+                role = "chords"      # a core element: plays through the song
                 ignored.append({"track": track.get("name"),
-                                "why": "no role could be read from the name"})
-                continue
-            entry = {"track_index": index, "role": role}
+                                "why": "name unclear -- arranged as a core part"})
+            entry = {"track_index": index, "role": role, "track_name":
+                     track.get("name")}
             if slots:
                 entry["clip_indices"] = sorted(slots)
             playable.append(entry)
@@ -2419,7 +2424,15 @@ class Toolbox:
         sections = arrangement.plan(
             target_seconds=target_seconds, tempo=tempo, template=chosen
         )
+
+        # Choose each section's roles from the tracks that are ACTUALLY here,
+        # by tier and energy -- not the template's fixed vocabulary. This is
+        # what keeps a verse carrying the groove (foundation + core + a
+        # topline) instead of only whatever happened to match a piano/guitar
+        # role list.
         plan = arrangement.summarise(sections, tempo)
+        for sec_dict, sec_obj in zip(plan["sections"], sections):
+            sec_dict["roles"] = arrangement.section_roles(roles_present, sec_obj)
 
         result = self.tool_arrange_to_timeline(
             sections=plan["sections"], tracks=playable, clear_first=clear_first

@@ -212,6 +212,77 @@ def is_dance_form(sections: list["Section"]) -> bool:
     return has_drop and has_beat
 
 
+# What layer of the mix each role occupies. This drives how a section is built
+# from the tracks that are actually present, rather than from a fixed
+# role list that assumes a particular band.
+TIER: dict[str, str] = {
+    # foundation -- the groove that almost never drops out
+    "kick": "foundation", "drums": "foundation", "bass": "foundation",
+    "sub": "foundation", "808": "foundation",
+    # core -- the harmonic bed that defines the song
+    "chords": "core", "pad": "core", "keys": "core", "piano": "core",
+    "guitar": "core", "organ": "core", "strings": "core", "rhodes": "core",
+    # topline -- the tune that carries the section
+    "lead": "topline", "hook": "topline", "melody": "topline",
+    "arp": "topline", "vocal": "topline", "brass": "topline",
+    "woodwind": "topline", "mallet": "topline", "choir": "topline",
+    # colour -- accents and transitions
+    "perc": "colour", "fx": "colour", "riser": "colour", "impact": "colour",
+    "harp": "colour",
+}
+
+
+def tier_of(role: str) -> str:
+    """Which mix layer a role sits in; unknown roles are 'core' -- present in
+    the song, never silently dropped."""
+    return TIER.get((role or "").lower(), "core")
+
+
+# Which tiers a section carries, by its kind. The principle that fixes "the
+# verse is just hi-hats": a verse is not a stripped intro, it is the full
+# groove at lower energy -- foundation and core always, a topline usually.
+# Only the intro and the outro genuinely thin out.
+SECTION_TIERS: dict[str, tuple[str, ...]] = {
+    "intro":     ("foundation", "core"),
+    "verse":     ("foundation", "core", "topline"),
+    "groove":    ("foundation", "core", "topline"),
+    "build":     ("foundation", "core", "colour"),
+    "drop":      ("foundation", "core", "topline", "colour"),
+    "chorus":    ("foundation", "core", "topline", "colour"),
+    "breakdown": ("core", "topline"),
+    "bridge":    ("core", "topline"),
+    "outro":     ("foundation", "core"),
+}
+
+
+def section_roles(present: set[str], section: "Section",
+                  progressive_intro: bool = False) -> list[str]:
+    """Which of the present roles play in a section, by tier and energy.
+
+    Built from the tracks that exist rather than a fixed list, so a synth-pop
+    set (lead, pad, keys) is arranged as sensibly as an acoustic band
+    (piano, guitar, drums). The core and foundation carry through every real
+    section -- a verse keeps the groove and the harmony, it does not strip to
+    a single element -- while intros and outros thin out.
+
+    `progressive_intro` (dance only) lets the intro add elements over its
+    length; a pop intro simply starts with fewer layers, it does not filter
+    them in one at a time.
+    """
+    tiers = SECTION_TIERS.get(section.kind, ("foundation", "core", "topline"))
+    chosen = [r for r in present if tier_of(r) in tiers]
+    # A chorus/drop with a topline present should always feature it; a verse
+    # keeps at most the main topline so the chorus has somewhere to lift to.
+    if section.kind == "verse":
+        toplines = [r for r in chosen if tier_of(r) == "topline"]
+        if len(toplines) > 1:
+            # Keep the most song-like topline (vocal > lead > melody > hook).
+            order = {"vocal": 0, "lead": 1, "melody": 2, "hook": 3, "arp": 4}
+            keep = min(toplines, key=lambda r: order.get(r, 9))
+            chosen = [r for r in chosen if tier_of(r) != "topline" or r == keep]
+    return chosen
+
+
 def dropout_before_lifts(sections: list["Section"], min_jump: float = 0.25
                          ) -> list[dict]:
     """Where a section hands into a much louder one, drop the last bar out.

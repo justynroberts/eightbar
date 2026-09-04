@@ -1036,13 +1036,23 @@ def test_arrange_existing_says_what_it_left_alone(box):
     assert len(box.bridge.tracks) == 2
 
 
-def test_arrange_existing_refuses_an_unreadable_set(box):
-    """Better to say why than to invent a set to arrange."""
-    box.call("create_track", {"name": "Audio 1"})
+def test_arrange_existing_keeps_unclear_named_tracks(box):
+    """A track with material but an unclear name plays, it is not dropped.
+
+    Dropping "Main Midi" / "Offbeat" for having unreadable names is what left
+    a verse with only hi-hats. Content-bearing tracks are arranged as a core
+    part; only a set with nothing to place is refused.
+    """
+    box.call("create_track", {"name": "Main Midi"})
     _place(box, 0, 0, [{"pitch": 60, "start": 0.0, "duration": 1.0,
                         "velocity": 100}], bars=4)
-    with pytest.raises(ToolError, match="Rename the tracks"):
-        box.call("arrange_existing", {})
+    result = box.call("arrange_existing", {})
+    assert result["placements"] > 0, "the unclear track was dropped"
+
+    empty = Toolbox(FakeBridge())
+    empty.call("create_track", {"name": "Nothing"})
+    with pytest.raises(ToolError, match="nothing in this set"):
+        empty.call("arrange_existing", {})
 
 
 def test_tool_enum_tables_have_no_duplicate_keys():

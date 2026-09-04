@@ -1297,3 +1297,27 @@ def test_dance_craft_only_applies_to_dance_forms():
         secs = arrangement.plan(target_seconds=240, tempo=138, template=tpl)
         assert arrangement.is_dance_form(secs), tpl
         assert arrangement.phrase_marks(secs), f"{tpl} got no phrase fills"
+
+
+def test_pop_verse_carries_the_groove_not_just_hats():
+    """A pop verse keeps foundation + core + a topline, not one element.
+
+    The bug: a synth-pop set (lead, pad, keys) arranged with the song
+    template's acoustic-band role list matched almost nothing in the verse,
+    leaving it as hi-hats and a pad. Section roles now come from the tracks
+    present, by tier, so the verse holds the groove and the harmony.
+    """
+    from ableton_ai import arrangement
+
+    present = {"drums", "bass", "pad", "lead", "chords"}
+    secs = arrangement.plan(target_seconds=180, tempo=120, template="song")
+    verse = next(s for s in secs if "verse" in s.name)
+    roles = set(arrangement.section_roles(present, verse))
+
+    # Foundation and harmony are there; it is not a single element.
+    assert "drums" in roles and "bass" in roles, roles
+    assert roles & {"chords", "pad"}, "the verse lost its harmony"
+    assert len(roles) >= 4, f"verse stripped to {roles}"
+
+    # An unknown role never vanishes: it is treated as core.
+    assert arrangement.tier_of("mystery") == "core"
