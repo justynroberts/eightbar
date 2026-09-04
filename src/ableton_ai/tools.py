@@ -113,6 +113,32 @@ def _role_overrides(tracks: list | None) -> dict[int, str]:
     return out
 
 
+def _role_from_content(bridge, track_index: int, slots: list[int]) -> str | None:
+    """What a track *is*, from the notes it plays -- register, polyphony, range.
+
+    The tool should not make the user rename tracks: a bassline is a bassline
+    whatever the track is called. corpus.classify_part reads a clip and says
+    drums/bass/chords/lead from its content; this maps that onto a role.
+    """
+    for ci in slots or [0]:
+        try:
+            clip = bridge.call("get_clip", track_index=track_index, clip_index=ci)
+        except (AbletonError, AbletonNotRunning):
+            continue
+        raw = clip.get("notes") or []
+        if not raw:
+            continue
+        notes = [corpus.MidiNote(pitch=int(n["pitch"]), start=float(n["start"]),
+                                 duration=float(n["duration"]),
+                                 velocity=int(n.get("velocity", 90)),
+                                 track=track_index)
+                 for n in raw]
+        part = corpus.classify_part(notes)
+        # classify_part returns drums/bass/chords/lead/unknown.
+        return None if part == "unknown" else part
+    return None
+
+
 def _has_session_clip(bridge, entry: dict) -> bool:
     """True when at least one of the entry's session slots holds a clip."""
     for ci in _slots_for(entry):
@@ -2398,13 +2424,14 @@ class Toolbox:
                 continue
             role = _role_from_name(track.get("name", ""), default=None)
             if not role:
-                # A track with material but an unreadable name ("Main Midi",
-                # "Offbeat") is not noise -- dropping it is why a verse ended
-                # up as just hi-hats. Treat it as a core element so it plays
-                # through the song; the user can rename it to be more precise.
-                role = "chords"      # a core element: plays through the song
-                ignored.append({"track": track.get("name"),
-                                "why": "name unclear -- arranged as a core part"})
+                # The name says nothing, so ask the notes. A bassline is a
+                # bassline whatever the track is called -- the user should
+                # never have to rename anything for the arranger to work.
+                role = _role_from_content(self.bridge, index, slots)
+            if not role:
+                # Audio, or a clip the classifier could not read: keep it as a
+                # core element so it plays through, silently -- no nagging.
+                role = "vocal" if not track.get("is_midi") else "chords"
             entry = {"track_index": index, "role": role, "track_name":
                      track.get("name")}
             if slots:
@@ -2413,10 +2440,9 @@ class Toolbox:
 
         if not playable:
             raise ToolError(
-                "nothing in this set to arrange: no track holds a clip whose "
-                "name says what it is. Rename the tracks after their role "
-                "(Kick, Bass, Chords, Strings...) or use build_track to write "
-                "the parts first."
+                "nothing in this set to arrange -- no track has a clip in a "
+                "Session slot or on the timeline. Add some material, or use "
+                "build_track to write the parts first."
             )
 
         roles_present = {e["role"] for e in playable}

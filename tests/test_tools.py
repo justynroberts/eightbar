@@ -1391,3 +1391,34 @@ def test_arrange_existing_mixed_session_and_timeline():
                                           "template": "techno"})
     assert {a["role"] for a in result["arranged"]} == {"kick", "bass", "chords"}
     assert len(b.arrangement.get(1, [])) > 1, "timeline-only bass not spread"
+
+
+def test_arrange_infers_role_from_content_no_rename_needed():
+    """An unclear track name must not force a rename -- the notes say enough.
+
+    "Offbeat", "Main Midi", "DragPluck" carry no role in the name, but a
+    bassline is a bassline by its register and a chord part by its polyphony.
+    arrange_existing classifies from content and arranges every track, without
+    telling the user to rename anything.
+    """
+    box = Toolbox(FakeBridge())
+
+    # A low monophonic part named nothing useful -> classified as bass.
+    box.call("create_track", {"name": "Offbeat"})
+    box.bridge.call("create_clip", track_index=0, clip_index=0,
+                    length_beats=8.0, name="Offbeat", notes=[
+                        {"pitch": 38, "start": i * 0.5, "duration": 0.4,
+                         "velocity": 100} for i in range(8)])
+    # A clear kick, by name.
+    box.call("create_track", {"name": "Kick"})
+    box.bridge.call("create_clip", track_index=1, clip_index=0,
+                    length_beats=4.0, name="k", notes=[
+                        {"pitch": 36, "start": 0.0, "duration": 0.5,
+                         "velocity": 110}])
+
+    result = box.call("arrange_existing", {"target_seconds": 90})
+    roles = {a["role"] for a in result["arranged"]}
+    assert "bass" in roles, f"Offbeat not inferred as bass: {roles}"
+    assert "kick" in roles
+    # No 'rename' anywhere in the result.
+    assert "rename" not in str(result).lower()
