@@ -1290,3 +1290,44 @@ def test_parameter_name_aliases_are_repaired(box):
     # A genuinely unknown keyword lists the accepted parameters.
     with pytest.raises(ToolError, match="Accepts:.*genre"):
         box.call("build_track", {"genre": "trance", "wibble": 1})
+
+
+def test_character_is_a_free_hint_not_an_enum(box):
+    """"low strings" is a sensible request; character must not be rejected.
+
+    It was enum-locked, so 'low' failed with a nonsense near-match
+    ('analog'). It is a free descriptor that biases the search -- an unknown
+    word simply does not bias, it never fails.
+    """
+    from ableton_ai import schemas
+
+    props = {t["name"]: t for t in schemas.tool_schemas()}["pick_sound"][
+        "input_schema"]["properties"]
+    assert "enum" not in props.get("character", {}), (
+        "character must not be a closed enum"
+    )
+
+
+def test_compose_theme_tolerates_bare_track_entries(box):
+    """tracks may be dicts, bare indices, or role-name strings -- never a crash.
+
+    A bare list of ints raised "'int' object has no attribute 'get'"; a list
+    of role names raised the same for 'str'.
+    """
+    for name in ("Lead", "Hook", "Bass", "Melody"):
+        box.call("create_track", {"name": name, "role": name.lower()})
+
+    # bare indices
+    r = box.call("compose_theme", {"key": "E", "scale": "minor",
+                                  "degrees": "1-3-7-5", "tracks": [0, 1, 2]})
+    assert r["written"], r
+    # role-name strings
+    r = box.call("compose_theme", {"key": "E", "scale": "minor",
+                                  "degrees": [1, 3, 7, 5],
+                                  "tracks": ["lead", "hook"]})
+    assert r["written"], r
+    # dicts still work
+    r = box.call("compose_theme", {"key": "E", "scale": "minor",
+                                  "degrees": "1-3-7-5",
+                                  "tracks": [{"track_index": 0, "role": "lead"}]})
+    assert r["written"], r

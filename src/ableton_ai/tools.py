@@ -1572,10 +1572,37 @@ class Toolbox:
         wanted = {"lead", "hook", "arp", "bass", "counter"}
         targets: dict[str, int] = {}
         if tracks:
+            # Tolerate the shapes the model actually passes: a {track_index,
+            # role} dict, a bare index (role read from the track's name), or a
+            # role-name string (matched to a track by name). A bare list of
+            # ints used to crash with "'int' object has no attribute 'get'".
+            state = self.bridge.call("get_song")
+            by_index = {int(t["index"]): t for t in state.get("tracks", [])}
+            name_to_index = {
+                str(t.get("name", "")).lower(): int(t["index"])
+                for t in state.get("tracks", [])
+            }
             for entry in tracks:
-                role = str(entry.get("role", "")).lower()
-                if role in wanted and "track_index" in entry:
-                    targets[role] = int(entry["track_index"])
+                if isinstance(entry, dict):
+                    role = str(entry.get("role", "")).lower()
+                    idx = entry.get("track_index")
+                    if idx is None and role in name_to_index:
+                        idx = name_to_index[role]
+                    if role in wanted and idx is not None:
+                        targets[role] = int(idx)
+                elif isinstance(entry, (int, float)):
+                    idx = int(entry)
+                    track = by_index.get(idx, {})
+                    nm = str(track.get("name", "")).lower()
+                    role = ("counter" if ("counter" in nm or "melody" in nm)
+                            else _role_from_name(nm, default=None))
+                    if role in wanted:
+                        targets[role] = idx
+                elif isinstance(entry, str):
+                    role = entry.strip().lower()
+                    role = "counter" if role in ("counter", "melody") else role
+                    if role in wanted and role in name_to_index:
+                        targets[role] = name_to_index[role]
         else:
             state = self.bridge.call("get_song")
             for track in state.get("tracks", []):

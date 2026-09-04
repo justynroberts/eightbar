@@ -19,6 +19,11 @@ from .tools import Toolbox
 
 # Prose for parameters whose meaning isn't obvious from the name alone.
 PARAM_DOCS: dict[str, str] = {
+    "character": (
+        "A free descriptive hint that biases the sound search -- warm, dark, "
+        "bright, low, lush, wide, soft, aggressive. Not a fixed list; anything "
+        "sensible nudges the pick, an unrecognised word simply does not."
+    ),
     "reference_track": (
         "Index of a track whose clip already holds the harmony this part should "
         "follow. When set, the key, scale, chord qualities and harmonic rhythm "
@@ -226,11 +231,10 @@ TOOL_ENUMS: dict[str, dict[str, list[str]]] = {
     "add_compression": {"style": _vocab(mixing.COMPRESSION)},
     "create_drum_fill": {"style": ["snare", "stutter", "toms"]},
     "design_sound": {"patch": _vocab(presets.RECIPES, presets.ALIASES)},
-    "pick_sound": {
-        "character": _vocab(
-            {c for table in presets.PRESET_PICKS.values() for c in table}
-        ),
-    },
+    # character is deliberately NOT enumerated: it is a free descriptive hint
+    # that biases the search -- "low", "warm", "dark", "lush", "wide" -- and
+    # rejecting a sensible word like "low strings" with a nonsense near-match
+    # ("analog"?) is worse than letting an unknown word simply not bias much.
     "build_track": {"genre": _vocab({"trance", "tech_house", "house",
                                      "deep_house", "techno", "melodic_techno",
                                      "big_room", "progressive", "dnb",
