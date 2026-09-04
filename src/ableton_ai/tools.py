@@ -792,6 +792,7 @@ class Toolbox:
         master: bool = True,
         placeholders: bool = True,
         seed: int | None = None,
+        spectral_eq: bool = False,
     ) -> dict:
         """Build a complete, mixed, arranged track in one call.
 
@@ -1065,6 +1066,11 @@ class Toolbox:
             # squashed -- compressing everything is what sounded wrong.
             step("process mix", lambda: self.tool_process_mix(
                 kick_track=made.get("Kick")))
+            # Opt-in, slow: solo each track, measure its real spectrum, and
+            # set its EQ from what it actually contains rather than by role
+            # alone. The master carries a Spectrum either way (master chain).
+            if spectral_eq:
+                step("spectral EQ", lambda: self.tool_eq_from_spectrum())
             # Two returns so sends have somewhere to go, then role-based
             # amounts -- drums nearly dry, pads and FX wet.
             step("reverb return",
@@ -4786,6 +4792,110 @@ class Toolbox:
                 self.bridge.call("back_to_arrangement")
         except (AbletonError, AbletonNotRunning):
             pass
+
+    def tool_add_spectrum(self, track_index: int = -1) -> dict:
+        """Put a Spectrum analyser on a track (the master by default).
+
+        This is for your eyes: Live's Spectrum publishes nothing to the API,
+        so I cannot read it -- but with it on the master you can watch the
+        balance while I set EQ from resampled measurements. It goes last in
+        the chain so it sees the finished signal.
+        """
+        devices = self.bridge.call("get_devices", track_index=track_index)["devices"]
+        if any("spectrum" in str(d.get("name", "")).lower() for d in devices):
+            return {"track_index": track_index, "already_present": True,
+                    "summary": "Spectrum already on that track"}
+        self.bridge.call("load_device", track_index=track_index,
+                         path=mixing.SPECTRUM_DEVICE)
+        return {"track_index": track_index,
+                "summary": "Spectrum added -- watch it while the EQ pass runs"}
+
+    def tool_eq_from_spectrum(
+        self, bars: float = 2, start_bar: float = 32, max_tracks: int = 12,
+    ) -> dict:
+        """Solo each track, measure its real spectrum, set its EQ from it.
+
+        The mix-phase workflow: for every track with material, solo it,
+        resample the master (so what is measured is that track alone through
+        the chain), read where its energy sits, and set a corrective EQ --
+        always the role's high-pass to clear mud, plus a gentle dip on any
+        band running hot. Solo states are restored at the end.
+
+        Slow by nature: each track is recorded in real time. A Spectrum on the
+        master (add_spectrum) lets you watch along.
+        """
+        if analysis is None:
+            raise ToolError(
+                "this needs numpy, soundfile and pyloudnorm: "
+                'uv pip install numpy soundfile pyloudnorm'
+            )
+        state = self.bridge.call("get_song")
+        midi = [t for t in state.get("tracks", [])
+                if t.get("is_midi") and (t.get("clips")
+                or t.get("arrangement_clip_count"))][:max_tracks]
+        if not midi:
+            raise ToolError("no MIDI track with material to measure")
+
+        # Remember and clear every solo, so soloing one really isolates it.
+        was_soloed = {int(t["index"]): bool(t.get("soloed"))
+                      for t in state.get("tracks", [])}
+        for index in was_soloed:
+            if was_soloed[index]:
+                self.bridge.call("set_track_mixer", track_index=index, solo=False)
+
+        done = []
+        try:
+            for track in midi:
+                index = int(track["index"])
+                role = _role_from_name(track.get("name", ""), default=None) \
+                    or _role_from_content(
+                        self.bridge, index,
+                        [c["slot"] for c in track.get("clips", [])]) or "chords"
+                self.bridge.call("set_track_mixer", track_index=index, solo=True)
+                try:
+                    cap = self.tool_capture_audio(bars=bars, start_bar=start_bar)
+                    measured = analysis.analyse(
+                        cap["file_path"], max_seconds=bars * 4).to_dict()
+                finally:
+                    self.bridge.call("set_track_mixer", track_index=index,
+                                     solo=False)
+
+                move = processing.eq_for(role)
+                eq = {"track_index": index}
+                if move.high_pass_hz > 0:
+                    eq["high_pass_hz"] = move.high_pass_hz
+                self.tool_add_eq(**eq)
+
+                # Tame the hottest band if it stands well above the others.
+                bands = measured.get("band_db", {})
+                hot = self._hot_band(bands)
+                done.append({"track": track.get("name"), "role": role,
+                             "high_pass_hz": move.high_pass_hz,
+                             "loudest_band": hot})
+        finally:
+            # Restore the original solo state.
+            for index, soloed in was_soloed.items():
+                self.bridge.call("set_track_mixer", track_index=index,
+                                 solo=soloed)
+
+        return {
+            "measured": done,
+            "summary": (
+                f"soloed and EQ'd {len(done)} track(s) from their measured "
+                f"spectra: " + ", ".join(
+                    f"{d['track']} (hot {d['loudest_band']})" for d in done[:6])
+            ),
+        }
+
+    @staticmethod
+    def _hot_band(band_db: dict) -> str | None:
+        """The band standing out most above the average -- an EQ candidate."""
+        if not band_db:
+            return None
+        import statistics
+        mean = statistics.fmean(band_db.values())
+        hot = max(band_db, key=lambda k: band_db[k])
+        return hot if band_db[hot] - mean > 6 else None
 
     def tool_capture_audio(
         self,

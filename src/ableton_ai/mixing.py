@@ -81,6 +81,7 @@ EQ_DEVICE = "Audio Effects/EQ Eight"
 COMPRESSOR_DEVICE = "Audio Effects/Compressor"
 GLUE_DEVICE = "Audio Effects/Glue Compressor"
 LIMITER_DEVICE = "Audio Effects/Limiter"
+SPECTRUM_DEVICE = "Audio Effects/Spectrum"
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,7 @@ def compression_for(role: str) -> CompressorSetting:
 MASTER_CHAIN = (
     (EQ_DEVICE, "Gentle corrective EQ, high-passed below 25Hz."),
     (LIMITER_DEVICE, "Ceiling at -0.3dB to stop inter-sample peaks."),
+    (SPECTRUM_DEVICE, "A Spectrum you can watch; the API cannot read it."),
 )
 
 

@@ -22,7 +22,14 @@ class FakeBridge:
         self.tracks: list[dict[str, Any]] = []
         self.arrangement: dict[int, list[dict[str, Any]]] = {}
         self.locators: list[dict[str, Any]] = []
-        self.returns: list[dict[str, Any]] = [{"name": "A Reverb"}, {"name": "B Delay"}]
+        self.returns: list[dict[str, Any]] = [
+            {"name": "A Reverb", "is_midi": False, "clips": {}, "devices": [],
+             "params": {}, "volume": 0.85, "panning": 0.0, "muted": False,
+             "soloed": False},
+            {"name": "B Delay", "is_midi": False, "clips": {}, "devices": [],
+             "params": {}, "volume": 0.85, "panning": 0.0, "muted": False,
+             "soloed": False},
+        ]
         self.envelopes: dict[tuple, list[dict]] = {}
         self.scale: dict[str, Any] = {}
         self.view = "session"
@@ -57,6 +64,20 @@ class FakeBridge:
     # -- helpers ------------------------------------------------------
 
     def _track(self, track_index: int) -> dict[str, Any]:
+        # -1 is the master, -2 and below are return tracks -- as in the real
+        # remote's _track_at. Model them so master-chain operations work.
+        if track_index == -1:
+            if not hasattr(self, "_master"):
+                self._master = {"name": "Master", "is_midi": False,
+                                "clips": {}, "devices": [], "params": {},
+                                "volume": 0.85, "panning": 0.0,
+                                "muted": False, "soloed": False}
+            return self._master
+        if track_index <= -2:
+            ri = -track_index - 2
+            if ri < len(self.returns):
+                return self.returns[ri]
+            raise AbletonError(f"return track {ri} out of range")
         if track_index < 0 or track_index >= len(self.tracks):
             raise AbletonError(f"track_index {track_index} out of range")
         return self.tracks[track_index]
@@ -498,7 +519,7 @@ class FakeBridge:
         "Sounds/Synth Keys": ["Warm Keys", "Pluck Keys"],
         "Audio Effects": ["EQ Eight", "Compressor", "Glue Compressor",
                           "Reverb", "Delay", "Saturator", "Limiter",
-                          "Auto Filter", "Utility"],
+                          "Auto Filter", "Utility", "Spectrum"],
         "Plugins": ["VST3/"],
         "Plugins/VST3": ["Xfer Records/"],
         "Plugins/VST3/Xfer Records": ["Serum 2"],

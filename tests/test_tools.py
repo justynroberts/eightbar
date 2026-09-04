@@ -1428,3 +1428,26 @@ def test_arrange_infers_role_from_content_no_rename_needed():
     assert "kick" in roles
     # No 'rename' anywhere in the result.
     assert "rename" not in str(result).lower()
+
+
+def test_master_chain_includes_a_spectrum(box):
+    """The master gets a Spectrum for the user to watch during mix/master."""
+    from ableton_ai import mixing
+    assert any("Spectrum" in dev for dev, _why in mixing.MASTER_CHAIN)
+
+    box.call("add_spectrum", {"track_index": -1})
+    devices = [d["name"] for d in
+               box.bridge.call("get_devices", track_index=-1)["devices"]]
+    assert any("Spectrum" in d for d in devices)
+    # Idempotent -- a second call does not stack a second analyser.
+    r = box.call("add_spectrum", {"track_index": -1})
+    assert r.get("already_present")
+
+
+def test_hot_band_flags_only_a_real_peak():
+    """The spectral EQ dips a band only when it stands well above the rest."""
+    from ableton_ai.tools import Toolbox
+    flat = {"sub": -20, "bass": -19, "mid": -21, "high": -20}
+    peaky = {"sub": -20, "bass": -8, "mid": -22, "high": -21}
+    assert Toolbox._hot_band(flat) is None
+    assert Toolbox._hot_band(peaky) == "bass"
