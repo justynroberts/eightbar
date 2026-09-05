@@ -122,6 +122,22 @@ PROGRESSIONS: dict[str, tuple[int, ...]] = {
     "hands_up":         (6, 7, 1, 1),   # VI-VII-i: the big lift home
     "anthem":           (1, 6, 7, 1),
 
+    # -- the trance progression library, named by shape ------------------
+    # From a trance construction ruleset. Several share chords and differ
+    # only in where they START -- the entry degree sets the feeling more than
+    # the chord choice. Quality is diatonic-from-scale, so in a minor key
+    # (1,5,6,4) sounds as i-v-VI-iv automatically.
+    "workhorse_1564":   (1, 5, 6, 4),   # i-v-VI-iv: neutral, always works
+    "minor_axis":       (1, 6, 3, 7),   # the pop axis, uplifting
+    "sine_edm":         (1, 7, 6, 7),   # descend then re-ascend
+    "dark_turnaround":  (1, 6, 4),      # i-VI-iv: the 6 dropping to the hard iv
+    "step_down":        (1, 7, 6, 5),   # descending; the 5 wants to be MAJOR
+                                        # (harmonic-minor V) for the pull home
+    "lydian_lift":      (6, 7, 1),      # starts on VI: the bright trance lift
+    "children":         (6, 4, 1),      # VI-iv-i: same shape, much darker
+    "dorian_lift":      (4, 6, 1),      # starts on iv, ascends home
+    "mixolydian_lift":  (7, 1, 3, 1),   # starts unresolved on VII, lands home
+
     # -- darker / techno -------------------------------------------------
     "hypnotic":         (1, 1, 7, 1),
     "minor_climb":      (1, 3, 4, 6),

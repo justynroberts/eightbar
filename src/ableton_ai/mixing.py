@@ -90,6 +90,20 @@ SPECTRUM_DEVICE = "Audio Effects/Spectrum"
 LOUDNESS_TARGET_LUFS = -9.0
 LOUDNESS_CEILING_DB = -1.0        # true-peak headroom under 0 dBFS
 
+# Absolute gain-staging anchors, in dBFS. The kick is the reference the whole
+# mix is levelled against; the sub sits ~8 dB under it. These are the two the
+# trance ruleset pins with hard numbers, and the two that can be measured on
+# their own -- the kick by its peak, the sub by its RMS in a band nothing else
+# occupies. Everything else stays on the relative BALANCE offsets from the
+# kick. A recipe can override with a "targets" dict.
+MIX_TARGETS: dict[str, float] = {
+    "kick_peak_dbfs": -12.0,
+    "sub_rms_dbfs": -20.0,
+}
+
+# Which measured quantity each anchor role is trimmed against.
+ANCHOR_METRIC: dict[str, str] = {"kick": "peak_db", "sub": "rms_db"}
+
 
 def loudness_gain(
     measured_lufs: float,

@@ -1672,3 +1672,74 @@ def test_recipe_opts_into_sub_and_strings_layers(box):
                            seed=1, mix=False, master=False, placeholders=False)
     n2 = {t["name"] for t in other.bridge.call("get_song")["tracks"]}
     assert "Sub" not in n2 and "Strings" not in n2, n2
+
+
+def test_gain_to_targets_trims_kick_to_its_dbfs_anchor(box, monkeypatch):
+    """The kick is measured and trimmed toward its absolute dBFS target."""
+    pytest.importorskip("pyloudnorm")
+    box.bridge.call("create_midi_track", name="Kick")
+    box.bridge.call("create_midi_track", name="Sub")
+    box.bridge.call("set_track_mixer", track_index=0, volume=0.85)
+
+    from ableton_ai import analysis as ana
+    monkeypatch.setattr(box, "tool_capture_audio",
+                        lambda **k: {"file_path": "/tmp/x.wav"})
+
+    class R:
+        def __init__(self, **kw): self.kw = kw
+        def to_dict(self): return self.kw
+    # kick measures -6 dBFS peak (4 dB too hot vs -12); sub -14 rms (too hot vs -20)
+    seq = iter([R(peak_db=-6.0, rms_db=-9.0, true_peak_db=-6.0),
+                R(peak_db=-11.0, rms_db=-14.0, true_peak_db=-11.0)])
+    monkeypatch.setattr(ana, "analyse", lambda p, max_seconds=8: next(seq))
+
+    before = box.bridge.call("get_track", track_index=0)["volume"]
+    r = box.tool_gain_to_targets()
+    after = box.bridge.call("get_track", track_index=0)["volume"]
+    assert after < before, r                       # kick was too hot -> trimmed down
+    kick = next(a for a in r["anchored"] if a["role"] == "kick")
+    assert kick["target_dbfs"] == -12.0 and kick["trim_db"] < 0
+
+
+def test_gain_to_targets_trims_kick_to_its_dbfs_anchor(box, monkeypatch):
+    """The kick is measured and trimmed toward its absolute dBFS target."""
+    pytest.importorskip("pyloudnorm")
+    box.bridge.call("create_midi_track", name="Kick")
+    box.bridge.call("create_midi_track", name="Sub")
+    box.bridge.call("set_track_mixer", track_index=0, volume=0.85)
+
+    from ableton_ai import analysis as ana
+    monkeypatch.setattr(box, "tool_capture_audio",
+                        lambda **k: {"file_path": "/tmp/x.wav"})
+
+    class R:
+        def __init__(self, **kw): self.kw = kw
+        def to_dict(self): return self.kw
+    seq = iter([R(peak_db=-6.0, rms_db=-9.0, true_peak_db=-6.0),
+                R(peak_db=-11.0, rms_db=-14.0, true_peak_db=-11.0)])
+    monkeypatch.setattr(ana, "analyse", lambda p, max_seconds=8: next(seq))
+
+    before = box.bridge.call("get_track", track_index=0)["volume"]
+    r = box.tool_gain_to_targets()
+    after = box.bridge.call("get_track", track_index=0)["volume"]
+    assert after < before, r
+    kick = next(a for a in r["anchored"] if a["role"] == "kick")
+    assert kick["target_dbfs"] == -12.0 and kick["trim_db"] < 0
+
+
+def test_trance_progression_library_is_named_and_diatonic(box):
+    """The named trance shapes resolve, and start on the degree that names them."""
+    from ableton_ai import theory
+    for name, first in (("workhorse_1564", 1), ("minor_axis", 1),
+                        ("lydian_lift", 6), ("children", 6),
+                        ("dorian_lift", 4), ("mixolydian_lift", 7),
+                        ("dark_turnaround", 1), ("step_down", 1)):
+        assert name in theory.PROGRESSIONS, name
+        assert theory.PROGRESSIONS[name][0] == first, name
+    # and one builds real chords through the tool, in key
+    r = box.call("create_chord_clip",
+                 {"track_index": box.bridge.call("create_midi_track",
+                                                 name="C")["track_index"],
+                  "key": "D", "scale": "minor", "degrees": "lydian_lift",
+                  "bars": 6})
+    assert r["chords"], r

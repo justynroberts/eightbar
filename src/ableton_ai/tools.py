@@ -5005,6 +5005,10 @@ class Toolbox:
                               "error": str(exc)[:120]})
 
         run("gain staging", lambda: self.tool_gain_stage(adjust=True))
+        # Anchor the reference to an absolute level: the kick to -12 dBFS, the
+        # sub ~8 dB under it. Relative staging alone never fixes a mix that is
+        # simply sitting at the wrong level. Skips cleanly off real Live.
+        run("gain to targets", lambda: self.tool_gain_to_targets())
         run("balance and pan", lambda: self.tool_mix_levels(apply_pan=True))
         run("subtractive EQ + sidechain + compression",
             lambda: self.tool_process_mix())
@@ -5298,6 +5302,90 @@ class Toolbox:
                 f"spectra: " + ", ".join(
                     f"{d['track']} (hot {d['loudest_band']})" for d in done[:6])
             ),
+        }
+
+    def tool_gain_to_targets(
+        self, targets: dict | None = None, bars: float = 2,
+        start_bar: float = 32, max_trim_db: float = 12.0,
+    ) -> dict:
+        """Anchor the mix to absolute dBFS targets -- the kick, then the sub.
+
+        Relative gain staging sets faders by convention and hopes; this pins
+        the reference to a real level. The kick is the anchor everything else
+        sits under: solo it, resample, measure its peak, and trim its fader to
+        the target (default -12 dBFS). Then do the sub against its RMS target
+        (default -20 dBFS, ~8 dB under the kick). Everything else keeps its
+        relative place from mix_levels. Solo states are restored.
+
+        `targets` overrides the defaults, e.g. {"kick_peak_dbfs": -10}. Needs
+        real Live audio and numpy/soundfile/pyloudnorm.
+        """
+        if analysis is None:
+            raise ToolError(
+                "this needs numpy, soundfile and pyloudnorm: "
+                'uv pip install numpy soundfile pyloudnorm')
+        aim = {**mixing.MIX_TARGETS, **(targets or {})}
+        state = self.bridge.call("get_song")
+        by_role: dict[str, int] = {}
+        for t in state.get("tracks", []):
+            role = _role_from_name(t.get("name", ""), default=None)
+            if role in ("kick", "sub") and role not in by_role:
+                by_role[role] = int(t["index"])
+        if not by_role:
+            raise ToolError("no kick or sub track to anchor the mix to")
+
+        target_key = {"kick": "kick_peak_dbfs", "sub": "sub_rms_dbfs"}
+        was_soloed = {int(t["index"]): bool(t.get("soloed"))
+                      for t in state.get("tracks", [])}
+        for index, soloed in was_soloed.items():
+            if soloed:
+                self.bridge.call("set_track_mixer", track_index=index, solo=False)
+
+        anchored = []
+        try:
+            # Kick first -- it is the reference -- then the sub under it.
+            for role in ("kick", "sub"):
+                if role not in by_role:
+                    continue
+                index = by_role[role]
+                self.bridge.call("set_track_mixer", track_index=index, solo=True)
+                try:
+                    cap = self.tool_capture_audio(bars=bars, start_bar=start_bar)
+                    measured = analysis.analyse(
+                        cap["file_path"], max_seconds=bars * 4).to_dict()
+                finally:
+                    self.bridge.call("set_track_mixer", track_index=index,
+                                     solo=False)
+                metric = mixing.ANCHOR_METRIC[role]
+                have = measured.get(metric)
+                want = aim[target_key[role]]
+                if have is None or have != have:      # missing or NaN
+                    anchored.append({"role": role, "measured": None,
+                                     "why": "no signal to measure"})
+                    continue
+                trim = max(-max_trim_db, min(max_trim_db, want - have))
+                current = float(self.bridge.call(
+                    "get_track", track_index=index).get("volume", 0.85))
+                now_db = mixing.live_to_db(current)
+                self.bridge.call(
+                    "set_track_mixer", track_index=index,
+                    volume=mixing.db_to_live(now_db + trim))
+                anchored.append({"role": role, "track": index,
+                                 "measured_dbfs": round(have, 1),
+                                 "target_dbfs": want, "trim_db": round(trim, 1)})
+        finally:
+            for index, soloed in was_soloed.items():
+                self.bridge.call("set_track_mixer", track_index=index,
+                                 solo=soloed)
+
+        return {
+            "anchored": anchored,
+            "targets": aim,
+            "summary": "; ".join(
+                f"{a['role']} {a['measured_dbfs']}->{a['target_dbfs']}dBFS "
+                f"({a['trim_db']:+.1f}dB)"
+                for a in anchored if a.get("measured_dbfs") is not None)
+            or "nothing anchored -- measured no signal",
         }
 
     @staticmethod
