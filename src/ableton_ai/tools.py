@@ -763,6 +763,10 @@ class Toolbox:
             "progression": "trance_classic", "drum_kit": "Drums/909 Core Kit.adg", "drum_pattern": "four_on_floor",
             "bass_style": "octave", "lead_style": "soaring",
             "groove": "pushed", "chord_rhythm": "offbeat",
+            # Trance runs the layered low end and the string bed (see the
+            # trance construction ruleset): a dedicated mono sub under the mid
+            # bass, and ensemble strings doubling the chords with 7th/9th.
+            "sub": True, "strings": True,
         },
         "tech_house": {
             "tempo": 126, "scale": "minor", "template": "house",
@@ -881,12 +885,27 @@ class Toolbox:
         # -- tracks and parts -------------------------------------------
         layout = [
             ("Kick", "kick"), ("Drums", "drums"), ("Bass", "bass"),
+        ]
+        # A dedicated sub layer under the mid bass -- mono, in the gaps between
+        # kicks. One bass patch cannot be sub, mid and character at once; the
+        # split is genre-agnostic and is what gives a solid, translatable low
+        # end. Opt in per recipe with "sub": True.
+        if recipe.get("sub"):
+            layout.append(("Sub", "sub"))
+        layout += [
             ("Chords", "chords"),
             # Two separate harmonic layers, on purpose. The big Pad is the
             # sustained bed and barely ducks; the Pulse is the rhythmic chord
             # stab that carries the dance pump. One track doing both makes the
             # sustained chord lurch every time the sidechain fires.
             ("Pad", "pad"), ("Pulse", "pulse"),
+        ]
+        # Strings doubling the chord progression with 7th and 9th, voice-led
+        # so adjacent chords share notes -- the emotional bed under a trance or
+        # cinematic track. Opt in per recipe with "strings": True.
+        if recipe.get("strings"):
+            layout.append(("Strings", "strings"))
+        layout += [
             ("Hook", "hook"), ("Lead", "lead"),
             ("Melody", "lead"), ("Riser", "riser"), ("Impact", "impact"),
             ("Build", "drums"),
@@ -959,6 +978,21 @@ class Toolbox:
             step("pulse", lambda: self.tool_create_varied_chords(
                 made["Pulse"], bars=8, variation="extended", extension="ninth",
                 rhythm="offbeat", **common))
+        if "Sub" in made:
+            # The sub sits an octave below the mid bass, offbeat in the gaps
+            # between kicks -- the rolling low end. It is summed to mono and
+            # low-passed by the mix; here it just plays the roots.
+            step("sub", lambda: self.tool_create_bass_clip(
+                made["Sub"], bars=8, rhythm="offbeat", style="root",
+                octave=1, **common))
+        if "Strings" in made:
+            # The emotional bed: the same progression as the chords, extended
+            # to the 9th and voiced open so voice-leading keeps common tones
+            # between chords -- what makes strings glide rather than lurch.
+            step("strings", lambda: self.tool_create_varied_chords(
+                made["Strings"], bars=8, variation="extended",
+                extension="ninth", voicing="open", rhythm="pad",
+                velocity=70, **common))
         # The melodic parts grow from one motif rather than three strangers:
         # the lead develops it, the hook fragments it an octave up, and the
         # Melody track carries the counter-line that answers it inverted.
@@ -1033,7 +1067,8 @@ class Toolbox:
         # through every drop too -- the accelerating roll under the whole
         # chorus was most of what "drums sound busy" meant.
         role_of = {"Kick": "kick", "Drums": "drums", "Bass": "bass",
-                   "Chords": "chords", "Pad": "pad", "Pulse": "pulse",
+                   "Sub": "sub", "Chords": "chords", "Pad": "pad",
+                   "Pulse": "pulse", "Strings": "strings",
                    "Hook": "hook", "Lead": "lead",
                    "Melody": "arp", "Riser": "riser", "Impact": "impact",
                    "Build": "riser", "Fills": "perc"}

@@ -1656,3 +1656,19 @@ def test_pop_song_builds_subtly_no_drum_fills():
     lifts = arrangement.dropout_before_lifts(secs)
     assert lifts and all("subtle" in d["why"] for d in lifts)
     assert arrangement.phrase_marks(secs) == []      # no fills every 8 bars
+
+
+def test_recipe_opts_into_sub_and_strings_layers(box):
+    """A recipe with sub/strings gets those tracks; one without does not."""
+    box.tool_build_track(genre="trance", key="D", duration_seconds=120,
+                         seed=1, mix=False, master=False, placeholders=False)
+    names = {t["name"] for t in box.bridge.call("get_song")["tracks"]}
+    assert {"Sub", "Strings"} <= names, names
+
+    from fake_live import FakeBridge
+    from ableton_ai.tools import Toolbox
+    other = Toolbox(FakeBridge())
+    other.tool_build_track(genre="house", key="A", duration_seconds=120,
+                           seed=1, mix=False, master=False, placeholders=False)
+    n2 = {t["name"] for t in other.bridge.call("get_song")["tracks"]}
+    assert "Sub" not in n2 and "Strings" not in n2, n2
