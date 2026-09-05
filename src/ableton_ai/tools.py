@@ -1094,6 +1094,25 @@ class Toolbox:
             if result:
                 ladders[name] = result["clip_indices"]
 
+        # -- critique the loops, before they are committed to the timeline -
+        # Measure the parts against the faults that make music sound generated
+        # while they are still single clips and easy to fix -- not after they
+        # are spread across a six-minute arrangement. Anything marked high is
+        # surfaced as a problem to act on.
+        critique = step("critique", lambda: self.tool_critique_music(
+            track_indices=[i for n, i in made.items()
+                           if n not in ("Riser", "Impact", "Build", "Fills")]))
+        if critique:
+            highs = [f for f in critique.get("findings", [])
+                     if f.get("severity") == "high"]
+            # Surfaced to act on, but kept out of `problems`: a low critique
+            # score is advice, not a build failure -- the track still built.
+            report["critique"] = {
+                "score": critique.get("score"),
+                "summary": critique.get("summary"),
+                "act_on": highs,
+            }
+
         if placeholders:
             step("placeholders", lambda: self.tool_create_placeholder_set(
                 roles=["vocal", "fx"]))

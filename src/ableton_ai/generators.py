@@ -191,6 +191,8 @@ RHYTHM_PATTERNS: dict[str, str] = {
     "quarters":      "x...x...x...x...",
     "halves":        "x.......x.......",
     "whole":         "x...............",
+    "sustained":     "x...............",   # one note held across the bar
+    "held":          "x...............",   # alias people reach for
     "house_bass":    "..x...x...x...x.",
     "rolling":       "x.xxx.xxx.xxx.xx",
     "syncopated":    "x..x..x...x..x..",
