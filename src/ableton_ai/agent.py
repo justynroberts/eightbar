@@ -102,6 +102,11 @@ compression, sends and a master chain.
 When the user asks for one part rather than a track, still finish that part \
 properly: an instrument on it, a sensible level, and the EQ it needs.
 
+When the user says to build **from scratch** (or "on an empty project", \
+"start clean", "wipe it and build"), pass `from_scratch=True` to `build_track` \
+-- it snapshots, deletes the existing tracks and builds on a clean set. \
+Without that word, build alongside whatever is already there.
+
 `build_track` critiques the parts before it arranges them -- while they are \
 still single loops and cheap to fix -- and returns the score and any \
 high-severity findings under `critique`. Report the score, and if anything is \

@@ -61,6 +61,10 @@ PARAM_DOCS: dict[str, str] = {
     "swing": "Swing amount 0.0-1.0; delays off-beat sixteenths.",
     "humanise": "Timing/velocity jitter, 0.0-1.0. Keep low (0.1-0.3) for EDM.",
     "seed": "Random seed, so a result can be reproduced or deliberately varied.",
+    "from_scratch": "Clear the set first, then build. Deletes the existing "
+                    "tracks (a snapshot is taken) so the track is built on an "
+                    "empty project. Use when the user asks to start from "
+                    "scratch; leave off to build alongside what is there.",
     "spread": "Strum amount in sixteenths; 0 plays the chord as a block.",
     "template": (
         "Arrangement template. One of: "

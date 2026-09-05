@@ -868,6 +868,7 @@ class Toolbox:
         placeholders: bool = True,
         seed: int | None = None,
         spectral_eq: bool = False,
+        from_scratch: bool = False,
     ) -> dict:
         """Build a complete, mixed, arranged track in one call.
 
@@ -951,10 +952,22 @@ class Toolbox:
             # them can be swapped without touching the groove.
             ("Fills", "perc"),
         ]
+        # "Build from scratch" clears the set first: the existing tracks are
+        # recorded now, the build's tracks are created fresh, and the originals
+        # are deleted once the new ones exist (Live keeps at least one track,
+        # so the order matters). One snapshot covers the lot.
+        pre_existing: list[int] = []
+        if from_scratch:
+            self._autosnapshot("build-from-scratch")
+            pre_existing = [int(t["index"])
+                            for t in self.bridge.call("get_song").get("tracks", [])]
+
         # Reuse this build's own tracks when they already exist: running
         # build_track twice used to create a second complete band next to the
         # first, and twenty tracks of doubled parts is its own kind of awful.
-        existing = {
+        # From scratch never reuses -- everything is created new, then the
+        # originals are removed.
+        existing = {} if from_scratch else {
             str(t.get("name")): int(t["index"])
             for t in self.bridge.call("get_song").get("tracks", [])
         }
@@ -967,6 +980,20 @@ class Toolbox:
                            lambda n=name, r=role: self.tool_create_track(n, r))
             if created:
                 made[name] = int(created["track_index"])
+
+        if from_scratch and pre_existing:
+            # Delete the originals highest-index-first so the survivors keep
+            # their indices, then rebuild `made` by name from the clean set --
+            # the deletions shifted every build track down.
+            for index in sorted(pre_existing, reverse=True):
+                try:
+                    self.bridge.call("delete_track", track_index=index)
+                except (AbletonError, AbletonNotRunning) as exc:
+                    report["problems"].append(f"clear track {index}: {exc}")
+            by_name = {str(t.get("name")): int(t["index"])
+                       for t in self.bridge.call("get_song").get("tracks", [])}
+            made = {name: by_name[name] for name, _ in layout if name in by_name}
+            report["cleared_tracks"] = len(pre_existing)
 
         step("instruments", lambda: self.tool_ensure_instruments(
             only_empty=True, seed=seed))

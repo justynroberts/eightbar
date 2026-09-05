@@ -1787,3 +1787,25 @@ def test_new_progressions_present(box):
                  "melancholic"):
         assert name in theory.PROGRESSIONS, name
     assert theory.PROGRESSIONS["bittersweet"][:2] == (6, 6)   # the long 6
+
+
+def test_build_from_scratch_clears_existing_tracks(box):
+    """from_scratch deletes the existing tracks and builds on a clean set."""
+    for n in ("1 MIDI", "2 Audio", "OldPad"):
+        box.bridge.call("create_midi_track", name=n)
+    before = {t["name"] for t in box.bridge.call("get_song")["tracks"]}
+
+    r = box.tool_build_track(genre="house", key="A", duration_seconds=90,
+                             seed=1, mix=False, master=False,
+                             placeholders=False, from_scratch=True)
+    after = {t["name"] for t in box.bridge.call("get_song")["tracks"]}
+    assert r["cleared_tracks"] == 3
+    assert not (before & after), after          # none of the junk survived
+    assert {"Kick", "Bass", "Chords"} <= after  # and the build is there
+
+    # default (no from_scratch) builds ALONGSIDE what exists
+    box2 = Toolbox(FakeBridge())
+    box2.bridge.call("create_midi_track", name="KeepMe")
+    box2.tool_build_track(genre="house", key="A", duration_seconds=90, seed=1,
+                          mix=False, master=False, placeholders=False)
+    assert "KeepMe" in {t["name"] for t in box2.bridge.call("get_song")["tracks"]}
