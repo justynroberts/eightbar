@@ -95,6 +95,9 @@ PARAM_DOCS: dict[str, str] = {
     ),
     "include_notes": "Include every clip's MIDI notes. Costly -- only when needed.",
     "mode": "'replace' wipes the clip first; 'add' merges into what's there.",
+    "pedal": "Hold one note across the whole progression to tie it together: "
+             "'tonic' (the usual choice) or 'third' (turns a sad progression "
+             "hopeful). 'none' for no pedal.",
     "direction": "'up' or 'down'.",
     "call_and_response": "Answer each phrase with a lower, sparser variation.",
     "fill_last_bar": "Replace the last bar's hats with a tom fill.",
@@ -136,6 +139,7 @@ ENUMS: dict[str, list[str]] = {
                           for s in v["styles"]}),
     "kind": ["audio", "midi"],
     "mode": ["add", "replace"],
+    "pedal": ["none", "tonic", "third"],
     "kick_mode": ["avoid", "ignore", "lock", "shorten"],
     "direction": ["down", "up"],
     "rate": ["1/4", "1/8", "1/16", "1/32"],

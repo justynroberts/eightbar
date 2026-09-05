@@ -137,6 +137,10 @@ PROGRESSIONS: dict[str, tuple[int, ...]] = {
     "children":         (6, 4, 1),      # VI-iv-i: same shape, much darker
     "dorian_lift":      (4, 6, 1),      # starts on iv, ascends home
     "mixolydian_lift":  (7, 1, 3, 1),   # starts unresolved on VII, lands home
+    "uplifting_sweet":  (6, 1, 3, 7),   # the axis rotated onto the 6, brighter
+    "euphoric_neutral": (5, 6, 1, 7),   # the three most loaded minor chords
+    "bittersweet":      (6, 6, 1, 7),   # the 6 held twice as long -- sad, pretty
+    "melancholic":      (1, 3, 5),      # sparse; wants a pedal tone over it
 
     # -- darker / techno -------------------------------------------------
     "hypnotic":         (1, 1, 7, 1),

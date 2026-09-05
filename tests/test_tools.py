@@ -1762,3 +1762,28 @@ def test_build_picks_a_random_progression_from_the_genre_pool():
     assert build(3)["progression"] == build(3)["progression"]   # seed repeats
     # a named progression overrides the pool
     assert build(1, progression="axis")["progression"] == "axis"
+
+
+def test_pedal_tone_holds_one_note_across_the_progression(box):
+    """pedal='tonic' adds one full-length held tonic under the chords."""
+    from ableton_ai import theory
+    ti = box.bridge.call("create_midi_track", name="Chords")["track_index"]
+    box.tool_create_chord_clip(track_index=ti, key="D", scale="minor",
+                               degrees="lydian_lift", bars=6, pedal="tonic")
+    notes = box.bridge.call("get_clip", track_index=ti, clip_index=0)["notes"]
+    tonic = theory.degree_to_pitch("D", "minor", 1, octave=2)
+    held = [n for n in notes if n["pitch"] == tonic and n["duration"] >= 6 * 4 - 0.5]
+    assert held, notes
+    # no pedal by default
+    box.tool_create_chord_clip(track_index=ti, clip_index=1, key="D",
+                               scale="minor", degrees="lydian_lift", bars=6)
+    n2 = box.bridge.call("get_clip", track_index=ti, clip_index=1)["notes"]
+    assert not [n for n in n2 if n["duration"] >= 6 * 4 - 0.5]
+
+
+def test_new_progressions_present(box):
+    from ableton_ai import theory
+    for name in ("uplifting_sweet", "euphoric_neutral", "bittersweet",
+                 "melancholic"):
+        assert name in theory.PROGRESSIONS, name
+    assert theory.PROGRESSIONS["bittersweet"][:2] == (6, 6)   # the long 6

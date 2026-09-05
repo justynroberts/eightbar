@@ -500,7 +500,13 @@ class Toolbox:
         if played and notes:
             if role is None:
                 role = self._role_of_track(track_index)
-            notes = perform.perform(notes, role or "lead", bars=bars)
+            # A pedal tone is held exactly as written -- it must not be thinned,
+            # re-articulated or register-folded like a played line, so it goes
+            # round the performance layer and back in unchanged.
+            pedals = [{k: v for k, v in n.items() if k != "pedal"}
+                      for n in notes if n.get("pedal")]
+            playable = [n for n in notes if not n.get("pedal")]
+            notes = perform.perform(playable, role or "lead", bars=bars) + pedals
 
         result = self.bridge.call(
             "create_clip",
@@ -667,6 +673,21 @@ class Toolbox:
         bars_per_chord = bars / len(chords)
         return chords, bars_per_chord
 
+    @staticmethod
+    def _pedal_pitch(pedal: str, key: str, scale: str, octave: int) -> int | None:
+        """The held pedal note for a progression, an octave below the chords.
+
+        'tonic' holds the key's root -- the usual choice; 'third' holds the
+        third degree, which is the mood-pivot that turns a sad progression
+        hopeful without changing a chord. 'none' (or anything else) means no
+        pedal.
+        """
+        p = (pedal or "none").strip().lower()
+        degree = {"tonic": 1, "root": 1, "third": 3, "3": 3, "3rd": 3}.get(p)
+        if degree is None:
+            return None
+        return theory.degree_to_pitch(key, scale, degree, octave=max(1, octave - 1))
+
     def tool_create_chord_clip(
         self,
         track_index: int,
@@ -688,6 +709,7 @@ class Toolbox:
         reference_clip: int = 0,
         mood: str | None = None,
         bank_style: str | None = None,
+        pedal: str = "none",
     ) -> dict:
         """Generate a chord progression clip. Voice leading is applied automatically so the chords move smoothly instead of jumping in octaves."""
         if mood is not None:
@@ -707,6 +729,7 @@ class Toolbox:
             spread=spread,
             humanise=humanise,
             seed=seed,
+            pedal_pitch=self._pedal_pitch(pedal, key, scale, octave),
         )
         result = self._write_clip(
             track_index, clip_index, bars, notes, name or f"{key} {scale} chords", role="chords")

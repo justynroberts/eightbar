@@ -428,6 +428,7 @@ def generate_chords(
     humanise: float = 0.0,
     seed: int | None = None,
     groove: str = "straight",
+    pedal_pitch: int | None = None,
 ) -> list[Note]:
     """Lay a voiced progression out in time.
 
@@ -437,6 +438,11 @@ def generate_chords(
 
     `spread` strums the chord: each successive voice is delayed by that many
     sixteenths, which is how you get a rolled piano-house chord.
+
+    `pedal_pitch`, when given, holds that one note sustained across the whole
+    progression -- the pedal tone that ties chords together when the changes
+    are wide, and the difference between a progression that gels and one that
+    lurches.
     """
     rng = random.Random(seed)
     key = rhythm.lower()
@@ -483,6 +489,15 @@ def generate_chords(
     notes = _humanise(notes, humanise, rng)
     if groove and groove != "straight":
         notes = groove_mod.apply(notes, groove, seed=seed)
+    if pedal_pitch is not None and chords:
+        # One sustained note under the whole progression. Full length, no
+        # groove or humanise -- a pedal does not move.
+        total = len(chords) * bars_per_chord * BEATS_PER_BAR
+        notes.append({
+            "pitch": int(pedal_pitch), "start": 0.0,
+            "duration": round(total, 4),
+            "velocity": max(40, velocity - 25), "pedal": True,
+        })
     notes.sort(key=lambda n: (n["start"], n["pitch"]))
     return notes
 
