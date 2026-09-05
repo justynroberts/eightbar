@@ -996,24 +996,34 @@ class Toolbox:
             step("bass", lambda: self.tool_create_styled_bass(
                 made["Bass"], style=recipe["bass_style"], bars=8,
                 drums_track=drum_notes_track, **common))
+        # Four harmonic layers only work if they are genuinely DIFFERENT --
+        # not the same chord at the same extension in the same octave four
+        # times, which is a cluster of piled ninths (muddy and dissonant) and
+        # four voices playing identical notes (samey). Each takes its own
+        # extension, voicing and register so they complement rather than
+        # duplicate: the pad wide and low on plain triads, the chords the mid
+        # comp on sevenths, the pulse rootless up top (the bass owns the root),
+        # and the strings the one lush ninth layer, high.
         if "Chords" in made:
-            # Diatonic colour from the ninth, not chromatic borrowed chords:
-            # 'rich' injects a secondary-dominant leading tone that clashes
-            # with an independently-built bass and melody. Extensions carry the
-            # interest and stay in key.
             step("chords", lambda: self.tool_create_varied_chords(
                 made["Chords"], bars=8, variation="extended",
-                extension="ninth", rhythm=recipe["chord_rhythm"], **common))
+                extension="seventh", voicing="open", octave=3,
+                rhythm=recipe["chord_rhythm"], **common))
         if "Pad" in made:
-            # The big sustained bed: held chords, wide and open. It barely
-            # ducks, so its job is continuity under everything.
+            # The big sustained bed: wide, low, plain triads. Width, not weight.
+            # Voice leading re-voices to a central register, so drop the whole
+            # layer an octave afterwards to physically clear the mid.
             step("pad", lambda: self.tool_create_varied_chords(
-                made["Pad"], bars=8, variation="extended", extension="ninth",
-                voicing="open", rhythm="pad", **common))
+                made["Pad"], bars=8, variation="extended", extension="triad",
+                voicing="spread", rhythm="pad", **common))
+            step("pad register", lambda: self.tool_transpose_clip(
+                made["Pad"], 0, -12))
         if "Pulse" in made:
-            # The rhythmic chord layer: offbeat stabs that carry the pump.
+            # The rhythmic layer: rootless (no root -- the bass has it) and up
+            # an octave, so its offbeat stabs sit above the bed, not inside it.
             step("pulse", lambda: self.tool_create_varied_chords(
-                made["Pulse"], bars=8, variation="extended", extension="ninth",
+                made["Pulse"], bars=8, variation="extended",
+                extension="seventh", voicing="rootless",
                 rhythm="offbeat", **common))
         if "Sub" in made:
             # The sub sits an octave below the mid bass, offbeat in the gaps
@@ -1023,13 +1033,15 @@ class Toolbox:
                 made["Sub"], bars=8, rhythm="offbeat", style="root",
                 octave=1, **common))
         if "Strings" in made:
-            # The emotional bed: the same progression as the chords, extended
-            # to the 9th and voiced open so voice-leading keeps common tones
-            # between chords -- what makes strings glide rather than lurch.
+            # The one lush layer: ninths, high and open, held. This is where
+            # the emotional 7th/9th belongs -- on a pad/string bed, not on all
+            # four layers at once (which is what made it wash out).
             step("strings", lambda: self.tool_create_varied_chords(
                 made["Strings"], bars=8, variation="extended",
                 extension="ninth", voicing="open", rhythm="pad",
                 velocity=70, **common))
+            step("strings register", lambda: self.tool_transpose_clip(
+                made["Strings"], 0, +12))
         # The melodic parts grow from one motif rather than three strangers:
         # the lead develops it, the hook fragments it an octave up, and the
         # Melody track carries the counter-line that answers it inverted.

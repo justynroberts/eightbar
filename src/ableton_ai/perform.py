@@ -78,8 +78,11 @@ REGISTER_BANDS: dict[str, tuple[int, int]] = {
     # awful" begins down here, not in the melody.
     "sub": (24, 43), "808": (24, 43), "bass": (33, 57),
     "guitar": (45, 76), "piano": (48, 84), "organ": (48, 79),
-    "chords": (52, 76), "pad": (48, 79), "pulse": (52, 79),
-    "strings": (48, 84),
+    # The four harmonic layers are deliberately pulled into different octaves
+    # so they do not cluster into one muddy band: pad low and wide, chords the
+    # mid comp, pulse above it, strings high.
+    "chords": (52, 72), "pad": (40, 62), "pulse": (60, 79),
+    "strings": (64, 88),
     "choir": (55, 79), "harp": (55, 91), "mallet": (72, 96),
     # The four top-line roles get bands whose *centres* are spaced apart so
     # two lines never sit in the same octave, but kept in MUSICAL range --
