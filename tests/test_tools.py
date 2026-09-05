@@ -1603,3 +1603,22 @@ def test_duplicate_track_copies_below_with_its_arrangement(box):
     # the arrangement lane came with it, and Lead's lane shifted to index 2
     assert len(box.bridge.arrangement.get(1, [])) == 2
     assert box.bridge.arrangement.get(1) is not box.bridge.arrangement.get(0)
+
+
+def test_transport_record_arms_and_rolls(box):
+    """record arms arrangement recording and starts playback; stop disarms."""
+    r = box.tool_transport(action="record")
+    assert r["is_playing"] is True and r["is_recording"] is True
+    song = box.bridge.call("get_song")
+    assert song["is_recording"] is True
+
+    r = box.tool_transport(action="stop")
+    assert r["is_playing"] is False and r["is_recording"] is False
+
+    # session record punches into slots instead of the timeline
+    r = box.tool_transport(action="record", record_mode="session")
+    assert box.bridge.session_record is True
+
+    # metronome toggles
+    box.tool_transport(action="metronome", metronome=True)
+    assert box.bridge.call("get_song")["metronome"] is True

@@ -236,6 +236,8 @@ class AbletonAI(ControlSurface):
             "start_playback": self._start_playback,
             "back_to_arrangement": self._back_to_arrangement,
             "stop_playback": self._stop_playback,
+            "set_record": self._set_record,
+            "set_metronome": self._set_metronome,
             "set_view": self._set_view,
             "browse": self._browse,
             "search_browser": self._search_browser,
@@ -451,6 +453,9 @@ class AbletonAI(ControlSurface):
             "tempo": song.tempo,
             "signature": str(song.signature_numerator) + "/" + str(song.signature_denominator),
             "is_playing": bool(song.is_playing),
+            "is_recording": bool(getattr(song, "record_mode", 0)),
+            "session_record": bool(getattr(song, "session_record", False)),
+            "metronome": bool(getattr(song, "metronome", False)),
             "current_time_beats": song.current_song_time,
             "scene_count": len(song.scenes),
             "track_count": len(song.tracks),
@@ -1479,8 +1484,48 @@ class AbletonAI(ControlSurface):
         return {"is_playing": bool(song.is_playing)}
 
     def _stop_playback(self, params):
-        self.song().stop_playing()
-        return {"is_playing": bool(self.song().is_playing)}
+        song = self.song()
+        song.stop_playing()
+        # Stopping also disarms recording, so a later plain play does not
+        # keep punching in -- the transport button behaves the same way.
+        if params.get("disarm_record", True):
+            try:
+                song.record_mode = 0
+                song.session_record = False
+            except Exception as exc:
+                self._warn("stop_disarm", exc)
+        return {"is_playing": bool(song.is_playing),
+                "is_recording": bool(getattr(song, "record_mode", 0))}
+
+    def _set_record(self, params):
+        """Arm recording and roll -- captures automation and notes.
+
+        Arrangement record (the default) writes parameter moves and MIDI into
+        the timeline, which is what "record the automation" means. Session
+        record punches into clip slots instead. Setting record_mode is the LOM
+        equivalent of pressing the transport's record button, so it must run on
+        the main thread like every other write.
+        """
+        song = self.song()
+        on = bool(params.get("on", True))
+        session = str(params.get("mode", "arrangement")).lower().startswith("s")
+        if session:
+            song.session_record = on
+        else:
+            song.record_mode = 1 if on else 0
+        if on and params.get("start", True) and not song.is_playing:
+            if "start_bar" in params:
+                song.current_song_time = float(params["start_bar"]) * BEATS_PER_BAR
+            song.start_playing()
+        return {"is_playing": bool(song.is_playing),
+                "is_recording": bool(getattr(song, "record_mode", 0)),
+                "session_record": bool(getattr(song, "session_record", False))}
+
+    def _set_metronome(self, params):
+        """Click on or off -- handy before a take."""
+        song = self.song()
+        song.metronome = bool(params.get("on", True))
+        return {"metronome": bool(song.metronome)}
 
     def _set_view(self, params):
         view = self.application().view

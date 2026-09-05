@@ -34,6 +34,9 @@ class FakeBridge:
         self.scale: dict[str, Any] = {}
         self.view = "session"
         self.playing = False
+        self.recording = False
+        self.session_record = False
+        self.metronome = False
         self.calls: list[tuple[str, dict]] = []
         self.host, self.port = "fake", 0
 
@@ -131,6 +134,8 @@ class FakeBridge:
             })
         return {
             "tempo": self.tempo, "signature": "4/4", "is_playing": self.playing,
+            "is_recording": self.recording, "session_record": self.session_record,
+            "metronome": self.metronome,
             "current_time_beats": 0.0, "scene_count": 8,
             "track_count": len(self.tracks), "return_track_count": 2,
             "tracks": tracks,
@@ -573,9 +578,27 @@ class FakeBridge:
         self.playing = True
         return {"is_playing": True}
 
-    def _stop_playback(self) -> dict:
+    def _stop_playback(self, disarm_record: bool = True) -> dict:
         self.playing = False
-        return {"is_playing": False}
+        if disarm_record:
+            self.recording = False
+            self.session_record = False
+        return {"is_playing": False, "is_recording": self.recording}
+
+    def _set_record(self, on: bool = True, mode: str = "arrangement",
+                    start: bool = True, start_bar: float | None = None) -> dict:
+        if str(mode).lower().startswith("s"):
+            self.session_record = bool(on)
+        else:
+            self.recording = bool(on)
+        if on and start:
+            self.playing = True
+        return {"is_playing": self.playing, "is_recording": self.recording,
+                "session_record": self.session_record}
+
+    def _set_metronome(self, on: bool = True) -> dict:
+        self.metronome = bool(on)
+        return {"metronome": self.metronome}
 
     def _set_view(self, view: str) -> dict:
         self.view = view

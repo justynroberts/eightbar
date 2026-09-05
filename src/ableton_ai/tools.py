@@ -432,13 +432,31 @@ class Toolbox:
         track_index: int | None = None,
         clip_index: int | None = None,
         start_bar: float | None = None,
+        record_mode: str = "arrangement",
+        metronome: bool | None = None,
     ) -> dict:
-        """Control playback: start, stop, fire or stop a clip, or switch between Session and Arrangement view."""
+        """Control the transport: play, stop, record, fire or stop a clip, toggle the metronome, or switch between Session and Arrangement view.
+
+        "record" arms recording and rolls -- arrangement record (the default,
+        `record_mode="arrangement"`) captures automation and notes onto the
+        timeline; `record_mode="session"` punches into clip slots. "stop" halts
+        playback and disarms record, like the transport button. `start_bar`
+        sets where playback (or recording) begins.
+        """
         if action == "play":
             params = {} if start_bar is None else {"start_bar": start_bar}
             return self.bridge.call("start_playback", **params)
         if action == "stop":
             return self.bridge.call("stop_playback")
+        if action in ("record", "record_arrangement", "record_session"):
+            params: dict[str, Any] = {"on": True}
+            params["mode"] = ("session"
+                              if action == "record_session"
+                              or record_mode == "session"
+                              else "arrangement")
+            if start_bar is not None:
+                params["start_bar"] = start_bar
+            return self.bridge.call("set_record", **params)
         if action in ("fire_clip", "stop_clip"):
             if track_index is None or clip_index is None:
                 raise ToolError(f"{action} needs track_index and clip_index")
@@ -446,6 +464,9 @@ class Toolbox:
             return self.bridge.call(
                 command, track_index=track_index, clip_index=clip_index
             )
+        if action == "metronome":
+            on = True if metronome is None else metronome
+            return self.bridge.call("set_metronome", on=on)
         if action == "show_session":
             return self.bridge.call("set_view", view="session")
         if action == "show_arrangement":
