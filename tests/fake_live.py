@@ -167,6 +167,37 @@ class FakeBridge:
         self.tracks.pop(track_index)
         return {"deleted": track_index, "track_count": len(self.tracks)}
 
+    def _duplicate_track(self, index: int = 0, name=None, color=None) -> dict:
+        """Live's track duplicate: a full copy below the source, clips and all.
+
+        Inserting a track shifts every later index, so the arrangement lanes
+        and clip envelopes keyed by track index shift with it -- otherwise a
+        copied track would inherit the wrong lane and the split would be a
+        no-op that still looked applied.
+        """
+        import copy
+        if index < 0 or index >= len(self.tracks):
+            raise AbletonError(f"track index {index} out of range")
+        new_index = index + 1
+        dup = copy.deepcopy(self.tracks[index])
+        self.tracks.insert(new_index, dup)
+        self.arrangement = {
+            (k + 1 if k >= new_index else k): v
+            for k, v in self.arrangement.items()
+        }
+        self.arrangement[new_index] = copy.deepcopy(
+            self.arrangement.get(index, []))
+        self.envelopes = {
+            ((k[0] + 1,) + k[1:] if k[0] >= new_index else k): v
+            for k, v in self.envelopes.items()
+        }
+        if name:
+            dup["name"] = name
+        if color is not None:
+            dup["color"] = color
+        return {"source_index": index, "track_index": new_index,
+                "name": dup["name"]}
+
     def _set_track_name(self, track_index: int, name: str) -> dict:
         self._track(track_index)["name"] = name
         return {"name": name}

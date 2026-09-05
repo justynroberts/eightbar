@@ -1583,3 +1583,23 @@ def test_build_track_writes_a_pad_and_a_pulse(box):
     depths = {s.split(" duck ")[0]: float(s.split(" duck ")[1])
               for s in r["sidechain"]}
     assert depths.get("pulse", 0) > depths.get("pad", 1)
+
+
+def test_duplicate_track_copies_below_with_its_arrangement(box):
+    """duplicate_track makes a full copy directly below, arrangement and all."""
+    box.bridge.call("create_midi_track", name="PulsePad")
+    box.bridge.call("create_midi_track", name="Lead")
+    # give PulsePad some arrangement clips
+    box.bridge.arrangement[0] = [{"start": 0.0, "name": "a"},
+                                 {"start": 16.0, "name": "b"}]
+
+    r = box.tool_duplicate_track(track_index=0, name="Pad", role="pad")
+    assert r["source_index"] == 0
+    assert r["track_index"] == 1
+    assert r["name"] == "Pad"
+
+    names = [t["name"] for t in box.bridge.call("get_song")["tracks"]]
+    assert names == ["PulsePad", "Pad", "Lead"]        # copy sits below source
+    # the arrangement lane came with it, and Lead's lane shifted to index 2
+    assert len(box.bridge.arrangement.get(1, [])) == 2
+    assert box.bridge.arrangement.get(1) is not box.bridge.arrangement.get(0)

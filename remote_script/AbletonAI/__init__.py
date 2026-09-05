@@ -210,6 +210,7 @@ class AbletonAI(ControlSurface):
             "set_tempo": self._set_tempo,
             "create_midi_track": self._create_midi_track,
             "create_audio_track": self._create_audio_track,
+            "duplicate_track": self._duplicate_track,
             "set_locators": self._set_locators,
             "get_locators": self._get_locators,
             "mark_saved": self._mark_saved,
@@ -993,6 +994,31 @@ class AbletonAI(ControlSurface):
         if color is not None:
             song.tracks[new_index].color = int(color)
         return {"track_index": new_index, "name": song.tracks[new_index].name}
+
+    def _duplicate_track(self, params):
+        """Duplicate a whole track -- clips, devices, arrangement, automation.
+
+        Live's own Cmd-D. The copy lands directly below the source, at
+        index + 1. This is the only faithful way to split a track that already
+        has arrangement clips: the socket cannot copy those across tracks by
+        hand, and duplicate_track preserves every clip, device and automation
+        envelope exactly.
+        """
+        song = self.song()
+        index = int(params.get("index", 0))
+        if index < 0 or index >= len(song.tracks):
+            raise IndexError("track index out of range (" + str(len(song.tracks)) + ")")
+        song.duplicate_track(index)
+        new_index = index + 1
+        name = params.get("name")
+        if name:
+            song.tracks[new_index].name = name
+        color = params.get("color")
+        if color is not None:
+            song.tracks[new_index].color = int(color)
+        return {"source_index": index,
+                "track_index": new_index,
+                "name": song.tracks[new_index].name}
 
     def _set_locators(self, params):
         """Drop named arrangement markers so section boundaries are visible.

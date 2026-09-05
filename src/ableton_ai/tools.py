@@ -380,6 +380,26 @@ class Toolbox:
             params["color"] = ROLE_COLOURS[role]
         return self.bridge.call("create_midi_track", **params)
 
+    def tool_duplicate_track(
+        self, track_index: int, name: str | None = None,
+        role: str | None = None,
+    ) -> dict:
+        """Duplicate a whole track -- clips, devices, arrangement and automation.
+
+        This is Live's own track duplicate. Use it to split one track into two,
+        which the socket cannot otherwise do for a track with arrangement clips:
+        there is no way to copy those across tracks by hand. The copy lands
+        directly below the source. Optionally rename and recolour it by role in
+        the same call. A snapshot is taken first, automatically.
+        """
+        self._autosnapshot("duplicate-track")
+        params: dict[str, Any] = {"index": int(track_index)}
+        if name:
+            params["name"] = name
+        if role and role in ROLE_COLOURS:
+            params["color"] = ROLE_COLOURS[role]
+        return self.bridge.call("duplicate_track", **params)
+
     def tool_delete_track(self, track_index: int) -> dict:
         """Delete a track by index. A snapshot is taken first, automatically."""
         backup = self._autosnapshot("delete-track")
