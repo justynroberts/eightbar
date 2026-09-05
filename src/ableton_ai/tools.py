@@ -408,6 +408,52 @@ class Toolbox:
             result["snapshot"] = backup
         return result
 
+    def tool_remove_empty_tracks(self, include_audio: bool = True) -> dict:
+        """Delete every track with nothing on it -- no session clip and no
+        arrangement clip, audio or MIDI.
+
+        An empty track contributes nothing to a mix or an arrangement and just
+        clutters the set. This clears them out. A snapshot is taken first, and
+        one track is always left behind because Live will not delete the last
+        one. Set include_audio=False to spare empty audio tracks (placeholders
+        you mean to record into).
+        """
+        self._autosnapshot("remove-empty-tracks")
+        state = self.bridge.call("get_song")
+        try:
+            on_timeline = {
+                int(t["index"]) for t in
+                self.bridge.call("get_arrangement").get("tracks", [])
+                if t.get("clips")
+            }
+        except (AbletonError, AbletonNotRunning):
+            on_timeline = set()
+
+        empties = []
+        for track in state.get("tracks", []):
+            index = int(track["index"])
+            if not include_audio and not track.get("is_midi"):
+                continue
+            if not track.get("clips") and index not in on_timeline:
+                empties.append(index)
+
+        # Live keeps at least one track in the set.
+        if len(empties) >= len(state.get("tracks", [])):
+            empties = empties[:-1]
+
+        removed = []
+        for index in sorted(empties, reverse=True):
+            try:
+                self.bridge.call("delete_track", track_index=index)
+                removed.append(index)
+            except (AbletonError, AbletonNotRunning) as exc:
+                log.warning("could not remove empty track %s: %s", index, exc)
+        return {
+            "removed": removed,
+            "summary": (f"removed {len(removed)} empty track(s)"
+                        if removed else "no empty tracks to remove"),
+        }
+
     def tool_set_track_mixer(
         self,
         track_index: int,
@@ -2585,6 +2631,7 @@ class Toolbox:
         target_seconds: float = 360,
         template: str | None = None,
         clear_first: bool = True,
+        remove_empty: bool = True,
     ) -> dict:
         """Arrange the tracks already in the set. Creates nothing.
 
@@ -2593,6 +2640,10 @@ class Toolbox:
         given a role from its name and placed. No track is created, no clip is
         generated, no instrument is loaded, whatever is missing.
 
+        An empty track (no session clip, no arrangement clip) contributes
+        nothing to arrange, so by default it is deleted rather than left
+        cluttering the set; set remove_empty=False to keep empties.
+
         The template is chosen from what the set actually contains unless you
         name one: a set with no drums is not a house track, and arranging it as
         one produces a build-up to a drop that never arrives.
@@ -2600,6 +2651,9 @@ class Toolbox:
         Use `build_track` when the set is empty and the parts need writing
         first. Use this when they already exist.
         """
+        removed_empty = []
+        if remove_empty:
+            removed_empty = self.tool_remove_empty_tracks().get("removed", [])
         state = self.bridge.call("get_song")
         tempo = float(state.get("tempo", 124.0))
 
@@ -2666,11 +2720,14 @@ class Toolbox:
             {"track_index": e["track_index"], "role": e["role"]} for e in playable
         ]
         result["ignored"] = ignored
+        result["removed_empty"] = removed_empty
         result["created_nothing"] = True
         result["summary"] = (
             f"arranged {len(playable)} existing track(s) as {chosen!r}: "
             f"{result['end_bars']:.0f} bars, "
             f"{result['duration_seconds'] / 60:.1f} min"
+            + (f"; removed {len(removed_empty)} empty track(s)"
+               if removed_empty else "")
             + (f"; {len(ignored)} track(s) had nothing to place" if ignored else "")
         )
         return result

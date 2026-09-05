@@ -71,7 +71,9 @@ set, gives every track that holds material a role from its name, chooses a form 
 that suits what is actually there, and places it. It creates no tracks, writes \
 no clips and loads no instruments. Do not call `create_track`, any `create_*` \
 clip tool, `build_track` or `ensure_instruments` as part of an arrangement \
-request -- if a track has nothing in it, say so afterwards and leave it.
+request. A track with nothing on it -- no session clip, no arrangement clip, \
+audio or MIDI -- is deleted (a snapshot is taken first), since an empty track \
+arranges to nothing; say afterwards which empties were removed.
 
 `build_track` is for a set that is empty and needs the parts written. Those are \
 different requests and the user will tell you which one they are making.

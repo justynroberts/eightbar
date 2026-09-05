@@ -61,6 +61,10 @@ PARAM_DOCS: dict[str, str] = {
     "swing": "Swing amount 0.0-1.0; delays off-beat sixteenths.",
     "humanise": "Timing/velocity jitter, 0.0-1.0. Keep low (0.1-0.3) for EDM.",
     "seed": "Random seed, so a result can be reproduced or deliberately varied.",
+    "remove_empty": "Delete tracks with nothing on them before arranging, so "
+                    "empties do not clutter the set. On by default.",
+    "include_audio": "Also remove empty AUDIO tracks, not just MIDI. On by "
+                     "default; set false to spare audio placeholders.",
     "from_scratch": "Clear the set first, then build. Deletes the existing "
                     "tracks (a snapshot is taken) so the track is built on an "
                     "empty project. Use when the user asks to start from "

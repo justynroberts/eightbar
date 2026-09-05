@@ -1031,15 +1031,21 @@ def test_arrange_existing_picks_a_form_that_suits_the_set(box):
     assert not any(p["section"] == "drop" for p in result["detail"]), result["detail"]
 
 
-def test_arrange_existing_says_what_it_left_alone(box):
-    """An empty track is reported, not filled in."""
+def test_arrange_existing_destroys_empty_tracks(box):
+    """An empty track is deleted, not filled in and not left cluttering."""
     box.call("create_track", {"name": "Chords", "role": "chords"})
-    box.call("create_track", {"name": "Lead", "role": "lead"})
+    box.call("create_track", {"name": "Lead", "role": "lead"})   # left empty
     _place(box, 0, 0, _chords([[60, 64, 67]]), bars=4)
 
     result = box.call("arrange_existing", {"target_seconds": 120})
-    assert [i["track"] for i in result["ignored"]] == ["Lead"]
-    assert len(box.bridge.tracks) == 2
+    assert len(result["removed_empty"]) == 1        # the empty Lead was removed
+    names = {t["name"] for t in box.bridge.tracks}
+    assert names == {"Chords"}                       # only the one with material
+    # opting out keeps the empty around
+    box.call("create_track", {"name": "Lead2", "role": "lead"})
+    result = box.call("arrange_existing",
+                      {"target_seconds": 120, "remove_empty": False})
+    assert "Lead2" in {t["name"] for t in box.bridge.tracks}
 
 
 def test_arrange_existing_keeps_unclear_named_tracks(box):
