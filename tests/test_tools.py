@@ -1622,3 +1622,37 @@ def test_transport_record_arms_and_rolls(box):
     # metronome toggles
     box.tool_transport(action="metronome", metronome=True)
     assert box.bridge.call("get_song")["metronome"] is True
+
+
+def test_intro_builds_up_elements_enter_progressively(box):
+    """In the intro the foundation enters before the harmony -- it builds."""
+    for role in ("Kick", "Drums", "Bass", "Chords", "Pad"):
+        box.bridge.call("create_midi_track", name=role)
+        idx = box.bridge.call("get_song")["tracks"][-1]["index"]
+        if role in ("Kick", "Drums"):
+            box.call("create_drum_clip", {"track_index": idx, "bars": 4})
+        else:
+            box.call("create_chord_clip",
+                     {"track_index": idx, "bars": 4, "key": "A",
+                      "scale": "minor"})
+    r = box.tool_arrange_existing(target_seconds=120, template="house",
+                                  clear_first=True)
+
+    def first_bar(role):
+        bars = [p["start_bar"] for p in r["detail"] if p["role"] == role]
+        return min(bars) if bars else None
+
+    # the kick opens; the harmony arrives later -- a build, not a block start
+    assert first_bar("kick") == 0
+    later = [first_bar(x) for x in ("chords", "pad") if first_bar(x) is not None]
+    assert later and min(later) > 0, r["detail"][:8]
+
+
+def test_pop_song_builds_subtly_no_drum_fills():
+    """A pop song lifts into each chorus but gets no dance drum fills."""
+    from ableton_ai import arrangement
+    secs = arrangement.plan(target_seconds=180, tempo=120, template="song")
+    assert not arrangement.is_dance_form(secs)
+    lifts = arrangement.dropout_before_lifts(secs)
+    assert lifts and all("subtle" in d["why"] for d in lifts)
+    assert arrangement.phrase_marks(secs) == []      # no fills every 8 bars

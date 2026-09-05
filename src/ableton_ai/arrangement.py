@@ -208,13 +208,17 @@ def is_dance_form(sections: list["Section"]) -> bool:
     """True when the arrangement is built around drops.
 
     Dance craft -- the bar of air before the drop, a fill every phrase -- is
-    exactly wrong in a through-composed cinematic or classical cue, and in a
-    beatless ambient piece whose "peak" is a swell, not a drop. It needs both
-    a drop section AND a kick-driven groove; either alone is not dance.
+    exactly wrong in a through-composed cinematic or classical cue, in a
+    beatless ambient piece whose "peak" is a swell, and in a pop song, whose
+    chorus reads as a "drop" to the coarse kind() but wants a subtle lift, not
+    a full pre-drop cut and a drum fill every eight bars. Dance needs all
+    three: a drop, a kick-driven groove, AND an explicit build section handing
+    up into it -- which pop and cinematic forms do not have.
     """
     has_drop = any(s.kind == "drop" for s in sections)
     has_beat = any("kick" in s.roles or "drums" in s.roles for s in sections)
-    return has_drop and has_beat
+    has_build = any(s.kind == "build" for s in sections)
+    return has_drop and has_beat and has_build
 
 
 # What layer of the mix each role occupies. This drives how a section is built
@@ -299,22 +303,33 @@ def dropout_before_lifts(sections: list["Section"], min_jump: float = 0.25
     Returns one entry per boundary that earns it: the bar to leave empty and
     the section it belongs to.
     """
-    if not is_dance_form(sections):
-        return []
+    dance = is_dance_form(sections)
     out = []
     for i, section in enumerate(sections[:-1]):
         nxt = sections[i + 1]
-        # The canonical dropout: a build handing into a drop. Also any sharp
-        # energy lift into a drop, even from a groove.
-        into_drop = nxt.kind == "drop"
+        into_drop = nxt.kind == "drop"        # chorus/peak/drop all read as this
         from_build = section.kind == "build"
-        if into_drop and (from_build or nxt.energy - section.energy >= min_jump):
-            out.append({
-                "at_bar": section.end_bar - 1,
-                "bars": 1,
-                "section": section.name,
-                "why": "the bar of air before the drop",
-            })
+        big_lift = nxt.energy - section.energy >= min_jump
+        if dance:
+            # The canonical dance dropout: a build handing into a drop, or any
+            # sharp energy lift into a drop even from a groove.
+            if into_drop and (from_build or big_lift):
+                out.append({
+                    "at_bar": section.end_bar - 1, "bars": 1,
+                    "section": section.name,
+                    "why": "the bar of air before the drop",
+                })
+        else:
+            # Every other form still builds into its big moment, just subtly:
+            # one bar before a chorus/peak the sustained bed drops while the
+            # drums and vocal carry over -- a lift, not a full stop. Pop lives
+            # on this, and it was missing entirely.
+            if into_drop and big_lift:
+                out.append({
+                    "at_bar": section.end_bar - 1, "bars": 1,
+                    "section": section.name,
+                    "why": "a subtle lift into the chorus",
+                })
     return out
 
 
@@ -342,24 +357,42 @@ def phrase_marks(sections: list["Section"], phrase_bars: int = 8) -> list[dict]:
 
 
 def intro_layers(sections: list["Section"], phrase_bars: int = 8) -> list[dict]:
-    """An intro brings elements in one phrase at a time, not all at once.
+    """An intro brings elements in one at a time, not all at once.
 
-    Returns, for the intro, the bar at which each successive role should first
-    appear -- kick alone, then hats, then bass, then the melodic parts -- so
-    the track assembles in front of the listener the way a DJ-friendly intro
-    does.
+    Returns, for the intro, the bar at which each successive role first
+    appears -- kick alone, then hats, then bass, then the harmony, then the
+    melody -- so the track assembles in front of the listener rather than
+    arriving whole. Genre-general: a dance intro filters in over whole phrases,
+    a short pop intro assembles quickly over two-bar steps. The opener is
+    whatever sits lowest in the stack that is present, so a set that starts on
+    a pad ("start with the pad and build") layers up from the pad exactly as a
+    kick-led one layers up from the kick.
     """
     intro = next((s for s in sections if s.kind == "intro"), None)
-    if intro is None or intro.bars < phrase_bars * 2:
+    if intro is None or intro.bars < 4:
         return []
-    # Order roles from foundation upward; each enters a phrase later.
+    # Order roles from the foundation upward; each enters after the last.
     order = ["kick", "hat", "perc", "bass", "sub", "pad", "chords", "pulse",
-             "arp", "lead", "hook", "melody"]
+             "keys", "piano", "guitar", "strings", "arp", "lead", "hook",
+             "melody", "vocal"]
     present = [r for r in order if r in intro.roles]
+    present += [r for r in intro.roles if r not in present]   # any stragglers
+    if len(present) <= 1:
+        return []                     # one element cannot build
+
+    # A whole phrase per layer when the intro is long enough for it; otherwise
+    # spread the entries evenly in >=2-bar steps so a short intro still builds
+    # quickly instead of dumping everything on bar one.
+    phrases = max(1, intro.bars // phrase_bars)
+    if phrases >= len(present):
+        step = phrase_bars
+    else:
+        step = max(2, (intro.bars - 2) // len(present))
+
     layers = []
-    for step, role in enumerate(present):
-        at = intro.start_bar + min(step, intro.bars // phrase_bars - 1) * phrase_bars
-        layers.append({"role": role, "at_bar": at})
+    for i, role in enumerate(present):
+        at = min(intro.start_bar + i * step, intro.end_bar - 2)
+        layers.append({"role": role, "at_bar": int(at)})
     return layers
 
 

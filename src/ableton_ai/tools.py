@@ -2790,6 +2790,14 @@ class Toolbox:
         dropout_bars = {int(d["at_bar"]) for d in dropouts}
         phrase_bars_set = {int(m["at_bar"]) for m in arrangement.phrase_marks(section_objs)}
 
+        # Progressive intro: each element enters a step later than the last, so
+        # the track assembles in front of the listener instead of arriving
+        # whole. role -> the bar it first appears; the intro's start bar for
+        # the opener, later bars for everything stacked above it.
+        intro_obj = next((s for s in section_objs if s.kind == "intro"), None)
+        intro_entry = {L["role"]: int(L["at_bar"])
+                       for L in arrangement.intro_layers(section_objs)}
+
         placements = []
         # Timeline-sourced tracks are placed in one call each, at the end: the
         # source has to survive until every copy is made.
@@ -2859,8 +2867,17 @@ class Toolbox:
                     if (end_bar - 1 in dropout_bars
                             and role in arrangement.SUSTAINED_FOR_DROPOUT):
                         span = max(clip_bars, bars - 1)
-                    repeats = max(1, int(round(span / clip_bars)))
                     at = start_bar
+                    # In the intro, a role starts at its staggered entry bar
+                    # rather than the section downbeat, so the arrangement
+                    # builds up. The opener still starts at bar one.
+                    if (intro_obj is not None
+                            and int(round(start_bar)) == intro_obj.start_bar
+                            and role in intro_entry
+                            and intro_entry[role] > start_bar):
+                        at = float(intro_entry[role])
+                        span = max(clip_bars, start_bar + bars - at)
+                    repeats = max(1, int(round(span / clip_bars)))
 
                 if entry.get("from_timeline"):
                     timeline_spread.setdefault(ti, []).append(
