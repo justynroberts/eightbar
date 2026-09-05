@@ -66,6 +66,7 @@ BALANCE: dict[str, RoleMix] = {
     "chords": RoleMix(-8.0,  200,   None, 0.0,  "High-passed hard; chords do not need low end.", 0.22, 0.12),
     "arp":    RoleMix(-10.0, 300,   None, -0.3, "Panned opposite the perc. Delay suits it more than reverb.", 0.16, 0.28),
     "pad":    RoleMix(-12.0, 250,   8000, 0.0,  "Wide and quiet; rolled off top and bottom. The wettest thing in the mix.", 0.40, 0.10),
+    "pulse":  RoleMix(-9.0,  220,   None, 0.15, "The rhythmic chord layer; a touch louder and drier than the big pad, slightly off-centre, so the pump reads as groove.", 0.18, 0.14),
     "lead":   RoleMix(-6.0,  200,   None, 0.0,  "Centre, forward, but under the kick.", 0.18, 0.22),
     "hook":   RoleMix(-5.0,  250,   None, 0.0,  "The part people remember; keep it audible and fairly dry.", 0.14, 0.18),
     "vocal":  RoleMix(-4.0,  100,   None, 0.0,  "Centre and prominent once recorded.", 0.24, 0.18),
@@ -82,6 +83,31 @@ COMPRESSOR_DEVICE = "Audio Effects/Compressor"
 GLUE_DEVICE = "Audio Effects/Glue Compressor"
 LIMITER_DEVICE = "Audio Effects/Limiter"
 SPECTRUM_DEVICE = "Audio Effects/Spectrum"
+
+# Club/dance masters sit loud: -9 to -7 LUFS integrated, well above the -14
+# streaming reference. A quiet mix is quiet because nothing drives the limiter,
+# not because the ceiling is wrong.
+LOUDNESS_TARGET_LUFS = -9.0
+LOUDNESS_CEILING_DB = -1.0        # true-peak headroom under 0 dBFS
+
+
+def loudness_gain(
+    measured_lufs: float,
+    target_lufs: float,
+    current_gain_db: float,
+    max_gain_db: float = 12.0,
+) -> float:
+    """The limiter input gain that brings `measured_lufs` up to the target.
+
+    Loudness is made by driving signal into the limiter, not by lowering the
+    ceiling. The gap between measured and target is how much more input the
+    limiter needs; add it to the gain already applied and cap it, so one
+    over-quiet measurement cannot ask for +40dB. The loop re-measures, so
+    limiting's diminishing returns are corrected on the next round rather than
+    guessed at here.
+    """
+    gap = target_lufs - measured_lufs
+    return max(0.0, min(max_gain_db, current_gain_db + gap))
 
 
 @dataclass(frozen=True)
@@ -192,8 +218,8 @@ def headroom_advice(track_count: int) -> str:
 BAND_OWNERS: dict[str, tuple[str, ...]] = {
     "sub": ("sub", "808", "kick", "bass"),
     "bass": ("bass", "sub", "kick", "808"),
-    "low_mid": ("chords", "pad", "keys", "perc", "snare"),
-    "mid": ("chords", "pad", "lead", "hook", "vocal", "keys", "arp"),
+    "low_mid": ("chords", "pad", "pulse", "keys", "perc", "snare"),
+    "mid": ("chords", "pad", "pulse", "lead", "hook", "vocal", "keys", "arp"),
     "high_mid": ("lead", "hook", "vocal", "arp", "clap", "snare"),
     "high": ("hat", "hats", "perc", "riser", "top"),
     "air": ("hat", "hats", "riser", "fx", "atmos"),
@@ -279,8 +305,9 @@ MIX_MASTER_PRACTICES = [
      "A gentle chain on the master: corrective EQ, glue compression doing "
      "1-2dB, then a limiter -- glue, not loudness."),
     ("loudness to target",
-     "Measure the master and bring it to a club-ready loudness with the "
-     "limiter, checking true peak stays under the ceiling."),
+     "Balance the spectrum, then drive the master to a club-ready loudness "
+     "by gaining into the limiter -- measured, with true peak held under the "
+     "ceiling. A ceiling alone makes nothing loud."),
     ("translation check",
      "Resample and measure -- band balance, mono compatibility, crest -- and "
      "flag anything that will not survive a small speaker or a phone."),

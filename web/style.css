@@ -36,6 +36,7 @@
   --role-lead:   #3b4f9c;
   --role-hook:   #6d3f9e;
   --role-pad:    #8c3080;
+  --role-pulse:  #3d59c9;
   --role-riser:  #a12a63;
   --role-impact: #a52a3c;
   --role-vocal:  #2f6b34;
@@ -88,6 +89,7 @@
     --role-lead:   #7f9bff;
     --role-hook:   #b389ff;
     --role-pad:    #e07be0;
+    --role-pulse:  #8aa2ff;
     --role-riser:  #ff77b0;
     --role-impact: #ff6b7d;
     --role-vocal:  #6fd57a;
@@ -126,6 +128,7 @@
   --role-lead:   #7f9bff;
   --role-hook:   #b389ff;
   --role-pad:    #e07be0;
+  --role-pulse:  #8aa2ff;
   --role-riser:  #ff77b0;
   --role-impact: #ff6b7d;
   --role-vocal:  #6fd57a;

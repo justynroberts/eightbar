@@ -38,7 +38,7 @@ BEATS_PER_BAR = 4.0
 # Track colours so generated tracks are visually distinguishable in Live.
 ROLE_COLOURS = {
     "kick": 1, "drums": 2, "perc": 3, "bass": 5, "sub": 6, "chords": 9,
-    "arp": 11, "lead": 13, "hook": 14, "pad": 17, "riser": 19,
+    "arp": 11, "lead": 13, "hook": 14, "pad": 17, "pulse": 16, "riser": 19,
     "impact": 20, "fx": 21, "vocal": 25,
     # Acoustic and orchestral roles. Warm ambers and greens, kept clear of the
     # synth roles above so an orchestral set reads at a glance.
@@ -68,7 +68,8 @@ _ROLE_HINTS: tuple[tuple[str, str], ...] = (
     ("kick", "kick"), ("sub", "sub"), ("bass", "bass"), ("hat", "drums"),
     ("drum", "drums"), ("perc", "perc"), ("clap", "drums"), ("snare", "drums"),
     ("chord", "chords"), ("arp", "arp"), ("lead", "lead"), ("hook", "hook"),
-    ("pad", "pad"), ("ris", "riser"), ("sweep", "riser"), ("impact", "impact"),
+    ("pulse", "pulse"), ("pad", "pad"),
+    ("ris", "riser"), ("sweep", "riser"), ("impact", "impact"),
     ("crash", "impact"), ("stab", "chords"), ("pluck", "arp"),
     ("voc", "vocal"), ("fx", "fx"), ("build", "drums"), ("top", "lead"),
 )
@@ -839,7 +840,13 @@ class Toolbox:
         # -- tracks and parts -------------------------------------------
         layout = [
             ("Kick", "kick"), ("Drums", "drums"), ("Bass", "bass"),
-            ("Chords", "chords"), ("Hook", "hook"), ("Lead", "lead"),
+            ("Chords", "chords"),
+            # Two separate harmonic layers, on purpose. The big Pad is the
+            # sustained bed and barely ducks; the Pulse is the rhythmic chord
+            # stab that carries the dance pump. One track doing both makes the
+            # sustained chord lurch every time the sidechain fires.
+            ("Pad", "pad"), ("Pulse", "pulse"),
+            ("Hook", "hook"), ("Lead", "lead"),
             ("Melody", "lead"), ("Riser", "riser"), ("Impact", "impact"),
             ("Build", "drums"),
             # Rolls and phrase fills get their OWN track (role perc), never
@@ -900,6 +907,17 @@ class Toolbox:
             step("chords", lambda: self.tool_create_varied_chords(
                 made["Chords"], bars=8, variation="extended",
                 extension="ninth", rhythm=recipe["chord_rhythm"], **common))
+        if "Pad" in made:
+            # The big sustained bed: held chords, wide and open. It barely
+            # ducks, so its job is continuity under everything.
+            step("pad", lambda: self.tool_create_varied_chords(
+                made["Pad"], bars=8, variation="extended", extension="ninth",
+                voicing="open", rhythm="pad", **common))
+        if "Pulse" in made:
+            # The rhythmic chord layer: offbeat stabs that carry the pump.
+            step("pulse", lambda: self.tool_create_varied_chords(
+                made["Pulse"], bars=8, variation="extended", extension="ninth",
+                rhythm="offbeat", **common))
         # The melodic parts grow from one motif rather than three strangers:
         # the lead develops it, the hook fragments it an octave up, and the
         # Melody track carries the counter-line that answers it inverted.
@@ -974,7 +992,8 @@ class Toolbox:
         # through every drop too -- the accelerating roll under the whole
         # chorus was most of what "drums sound busy" meant.
         role_of = {"Kick": "kick", "Drums": "drums", "Bass": "bass",
-                   "Chords": "chords", "Hook": "hook", "Lead": "lead",
+                   "Chords": "chords", "Pad": "pad", "Pulse": "pulse",
+                   "Hook": "hook", "Lead": "lead",
                    "Melody": "arp", "Riser": "riser", "Impact": "impact",
                    "Build": "riser", "Fills": "perc"}
         entries = []
@@ -4717,6 +4736,107 @@ class Toolbox:
             ),
         }
 
+    def tool_master_loudness(
+        self,
+        target_lufs: float = mixing.LOUDNESS_TARGET_LUFS,
+        ceiling_db: float = mixing.LOUDNESS_CEILING_DB,
+        rounds: int = 3,
+        max_gain_db: float = 12.0,
+        tolerance: float = 0.7,
+    ) -> dict:
+        """Drive the master to a club-loud level by measuring and gaining in.
+
+        This is the step that makes a mix *feel* mastered. A ceiling alone does
+        nothing for loudness -- the level has to be driven into the limiter.
+        Each round resamples the master, measures integrated LUFS, and raises
+        the limiter's input Gain by the gap to the target; the ceiling
+        (`ceiling_db`, a true-peak cap) catches the peaks. It stops once within
+        `tolerance` LU of target or after `rounds`. Needs real Live audio and
+        numpy/soundfile/pyloudnorm; measures nothing on the simulator.
+        """
+        if analysis is None:
+            raise ToolError(
+                "this needs numpy, soundfile and pyloudnorm: "
+                'uv pip install numpy soundfile pyloudnorm'
+            )
+        MASTER = -1
+        devices = self.bridge.call("get_devices", track_index=MASTER)["devices"]
+        limiter = next(
+            (d for d in devices if "limiter" in str(d.get("name", "")).lower()),
+            None,
+        )
+        if limiter is None:
+            self.tool_add_master_chain(ceiling_db=ceiling_db)
+            devices = self.bridge.call(
+                "get_devices", track_index=MASTER)["devices"]
+            limiter = next(
+                (d for d in devices
+                 if "limiter" in str(d.get("name", "")).lower()), None)
+        if limiter is None:
+            raise ToolError("no limiter on the master to drive")
+
+        names = [str(p.get("name", "")) for p in limiter.get("parameters", [])]
+        gain_param = next((n for n in names if n.lower() == "gain"), None) \
+            or next((n for n in names if "gain" in n.lower()), None)
+        ceil_param = next((n for n in names if "ceiling" in n.lower()), None)
+        if not gain_param:
+            raise ToolError(
+                "the master limiter exposes no input Gain to drive")
+        if ceil_param:
+            self.bridge.call(
+                "set_device_parameter", track_index=MASTER,
+                device_index=limiter["index"], parameter=ceil_param,
+                value=ceiling_db, normalised=False)
+
+        current_gain = next(
+            (float(p.get("value", 0.0)) for p in limiter.get("parameters", [])
+             if str(p.get("name", "")).lower() == gain_param.lower()), 0.0)
+
+        history = []
+        for round_index in range(max(1, int(rounds))):
+            capture = self.tool_capture_audio(bars=4, start_bar=0)
+            measured = analysis.analyse(
+                capture["file_path"], max_seconds=16).to_dict()
+            lufs = measured["lufs"]
+            history.append({
+                "round": round_index + 1, "lufs": lufs,
+                "true_peak_db": measured["true_peak_db"],
+                "gain_db": round(current_gain, 2),
+            })
+            if lufs != lufs:  # NaN -- silence or capture failed
+                history[-1]["verdict"] = "measured no signal; nothing to drive"
+                break
+            if abs(target_lufs - lufs) <= tolerance:
+                history[-1]["verdict"] = "on target"
+                break
+            new_gain = mixing.loudness_gain(
+                lufs, target_lufs, current_gain, max_gain_db=max_gain_db)
+            if abs(new_gain - current_gain) < 0.05:
+                history[-1]["verdict"] = (
+                    f"limiter gain capped at {new_gain:.1f}dB; "
+                    "louder needs mix moves, not more drive")
+                break
+            self.bridge.call(
+                "set_device_parameter", track_index=MASTER,
+                device_index=limiter["index"], parameter=gain_param,
+                value=new_gain, normalised=False)
+            current_gain = new_gain
+
+        last = history[-1]
+        return {
+            "history": history,
+            "final_lufs": last["lufs"],
+            "limiter_gain_db": round(current_gain, 2),
+            "ceiling_db": ceiling_db,
+            "target_lufs": target_lufs,
+            "summary": (
+                f"master at {last['lufs']:.1f} LUFS "
+                f"(target {target_lufs:.0f}), "
+                f"limiter driven +{current_gain:.1f}dB, "
+                f"true peak {last['true_peak_db']:.1f}dB"
+            ),
+        }
+
     def tool_low_end_mono(self, below_hz: float = 120.0) -> dict:
         """Sum the low end to mono on the kick, bass and sub with Utility.
 
@@ -4769,7 +4889,8 @@ class Toolbox:
                            f"{len(done)} track(s)"}
 
     def tool_mix_and_master(
-        self, target_lufs: float = -8.0, translation_check: bool = True,
+        self, target_lufs: float = mixing.LOUDNESS_TARGET_LUFS,
+        translation_check: bool = True,
     ) -> dict:
         """Apply the ten mix/master best practices, in order.
 
@@ -4797,8 +4918,13 @@ class Toolbox:
         run("low-end mono", lambda: self.tool_low_end_mono())
         run("reverb and delay sends", lambda: self.tool_set_sends_by_role())
         run("master bus", lambda: self.tool_add_master_chain())
-        run("loudness to target",
-            lambda: self.tool_mix_to_target(rounds=2, target_lufs=target_lufs))
+        # Two halves: balance the spectrum by trimming bands that are over,
+        # then actually drive the master to the target by gaining into the
+        # limiter. The trims alone never made it loud -- they only ever cut.
+        run("loudness to target", lambda: (
+            self.tool_mix_to_target(rounds=2, target_lufs=target_lufs),
+            self.tool_master_loudness(target_lufs=target_lufs),
+        ))
         report = {}
         if translation_check:
             try:
@@ -4866,7 +4992,8 @@ class Toolbox:
                     self.tool_add_sidechain_pump(
                         track_index=entry["track_index"],
                         depth=entry["depth"],
-                        shape="sharp" if entry["role"] in ("bass", "sub")
+                        shape="sharp" if entry["role"] in ("bass", "sub",
+                                                            "808", "pulse")
                         else "smooth",
                     )
                     done["sidechain"].append(

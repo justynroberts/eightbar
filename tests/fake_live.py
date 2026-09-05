@@ -331,6 +331,18 @@ class FakeBridge:
         "Bass Freq": (50.0, 500.0, 120.0),
     }
 
+    # Faithful to Live's Limiter: Gain is the input drive in real dB and
+    # Ceiling the output cap in real dB -- neither is a normalised 0..1. Master
+    # loudness is made by raising Gain, so a fake that hid Gain would let the
+    # "mix for loudness" fix look applied while doing nothing.
+    LIMITER_PARAMS = {
+        "Device On": (0.0, 1.0, 1.0),
+        "Gain": (-12.0, 12.0, 0.0),
+        "Ceiling": (-70.0, 0.0, -0.3),
+        "Release": (0.1, 1.0, 0.5),
+        "Auto": (0.0, 1.0, 1.0),
+    }
+
     def _device_params(self, track_index: int, device_index: int) -> list[dict]:
         track = self._track(track_index)
         if device_index >= len(track["devices"]):
@@ -341,6 +353,11 @@ class FakeBridge:
             return [
                 {"name": n, "value": store.get(n, 0.5), "min": lo, "max": hi}
                 for n, (lo, hi) in self.EQ_PARAMS.items()
+            ]
+        if "limiter" in device:
+            return [
+                {"name": n, "value": store.get(n, default), "min": lo, "max": hi}
+                for n, (lo, hi, default) in self.LIMITER_PARAMS.items()
             ]
         if "utility" in device:
             return [

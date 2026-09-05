@@ -47,7 +47,8 @@ ROLE_CURVES: dict[str, str] = {
     "kick": "straight", "drums": "straight", "perc": "offbeat",
     "snare": "straight", "hat": "offbeat",
     "bass": "straight", "sub": "sustain", "808": "sustain",
-    "chords": "offbeat", "pad": "sustain", "strings": "sustain",
+    "chords": "offbeat", "pad": "sustain", "pulse": "offbeat",
+    "strings": "sustain",
     "choir": "sustain", "organ": "sustain", "atmos": "sustain",
     "lead": "melodic", "melody": "melodic", "hook": "melodic",
     "piano": "melodic", "guitar": "melodic", "woodwind": "melodic",
@@ -61,7 +62,8 @@ ROLE_CURVES: dict[str, str] = {
 # that does not is lifeless.
 ROLE_INTENSITY: dict[str, float] = {
     "kick": 0.7, "drums": 1.2, "perc": 1.3, "hat": 1.4, "snare": 1.0,
-    "bass": 0.9, "sub": 0.4, "chords": 0.8, "pad": 0.35, "strings": 0.5,
+    "bass": 0.9, "sub": 0.4, "chords": 0.8, "pad": 0.35, "pulse": 0.7,
+    "strings": 0.5,
     "choir": 0.4, "lead": 1.0, "melody": 1.1, "hook": 1.0, "arp": 0.9,
     "piano": 1.2, "guitar": 1.1, "mallet": 1.0, "harp": 0.9, "organ": 0.5,
 }
@@ -76,7 +78,8 @@ REGISTER_BANDS: dict[str, tuple[int, int]] = {
     # awful" begins down here, not in the melody.
     "sub": (24, 43), "808": (24, 43), "bass": (33, 57),
     "guitar": (45, 76), "piano": (48, 84), "organ": (48, 79),
-    "chords": (52, 76), "pad": (48, 79), "strings": (48, 84),
+    "chords": (52, 76), "pad": (48, 79), "pulse": (52, 79),
+    "strings": (48, 84),
     "choir": (55, 79), "harp": (55, 91), "mallet": (72, 96),
     # The four top-line roles get bands whose *centres* are spaced apart so
     # two lines never sit in the same octave, but kept in MUSICAL range --
@@ -100,7 +103,7 @@ ROLE_POCKET: dict[str, float] = {
     "bass": 0.018, "sub": 0.02, "808": 0.02,
     "snare": 0.012, "clap": 0.012,
     "hat": -0.012, "perc": -0.008,
-    "chords": 0.01, "pad": 0.025, "strings": 0.03, "choir": 0.03,
+    "chords": 0.01, "pad": 0.025, "pulse": 0.004, "strings": 0.03, "choir": 0.03,
     "piano": 0.008, "guitar": 0.012,
     "kick": 0.0, "drums": 0.0,          # the anchors stay on the grid
     "lead": 0.006, "melody": 0.008, "hook": 0.0, "arp": -0.006,

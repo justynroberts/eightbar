@@ -1516,3 +1516,70 @@ def test_low_end_mono_turns_bass_mono_on_at_the_right_hz(box):
     params = {p["name"]: p["value"] for p in util["parameters"]}
     assert params["Bass Mono"] == 1.0            # toggle on
     assert params["Bass Freq"] == 100.0          # written as real Hz, clamped in range
+
+
+def test_loudness_gain_drives_up_and_caps():
+    from ableton_ai import mixing
+    # 6 LU under target -> add 6 dB of drive
+    assert mixing.loudness_gain(-15.0, -9.0, 0.0) == 6.0
+    # already loud enough -> no negative gain (never turns it down here)
+    assert mixing.loudness_gain(-7.0, -9.0, 0.0) == 0.0
+    # cannot ask for more than the cap
+    assert mixing.loudness_gain(-40.0, -9.0, 0.0, max_gain_db=12.0) == 12.0
+
+
+def test_master_loudness_gains_into_the_limiter(box, monkeypatch):
+    """Given a too-quiet master, it raises the limiter's input Gain."""
+    pytest.importorskip("pyloudnorm")
+    box.bridge.call("load_device", track_index=-1, path="Audio Effects/Limiter")
+
+    # stub the real-time capture + analysis: report a quiet master once,
+    # then on-target after the drive is applied.
+    from ableton_ai import analysis as ana
+    calls = {"n": 0}
+    monkeypatch.setattr(box, "tool_capture_audio",
+                        lambda **k: {"file_path": "/tmp/fake.wav"})
+
+    class R:
+        def __init__(self, lufs): self.lufs = lufs
+        def to_dict(self):
+            return {"lufs": self.lufs, "true_peak_db": -1.0}
+
+    def fake_analyse(path, max_seconds=16):
+        calls["n"] += 1
+        return R(-15.0) if calls["n"] == 1 else R(-9.2)
+    monkeypatch.setattr(ana, "analyse", fake_analyse)
+
+    r = box.tool_master_loudness(target_lufs=-9.0, rounds=3)
+    assert r["limiter_gain_db"] > 0, r
+    # the Gain param on the master limiter actually moved
+    devs = box.bridge.call("get_devices", track_index=-1)["devices"]
+    lim = next(d for d in devs if "limiter" in d["name"].lower())
+    gain = next(p["value"] for p in lim["parameters"] if p["name"] == "Gain")
+    assert gain > 0
+    assert r["final_lufs"] == -9.2
+
+
+def test_pad_and_pulse_are_separate_roles(box):
+    """The big pad and the pulse pad are distinct: names, roles, and pump."""
+    from ableton_ai import arrangement, processing
+    # aliases resolve the words producers use
+    assert arrangement.normalise_role("pulse pad") == "pulse"
+    assert arrangement.normalise_role("big pad") == "pad"
+    assert arrangement.normalise_role("Pulse") == "pulse"
+    # the sustained pad barely ducks; the pulse carries the pump
+    assert processing.sidechain_depth("pulse") > processing.sidechain_depth("pad")
+    assert processing.sidechain_depth("pad") <= 0.2
+
+
+def test_build_track_writes_a_pad_and_a_pulse(box):
+    """build_track creates both harmonic layers, not one pad doing both jobs."""
+    box.tool_build_track(genre="trance", key="A", duration_seconds=120,
+                         seed=1, mix=False, master=False, placeholders=False)
+    names = {t["name"] for t in box.bridge.call("get_song")["tracks"]}
+    assert "Pad" in names and "Pulse" in names
+    # and the mix ducks the pulse deeper than the pad
+    r = box.tool_process_mix()
+    depths = {s.split(" duck ")[0]: float(s.split(" duck ")[1])
+              for s in r["sidechain"]}
+    assert depths.get("pulse", 0) > depths.get("pad", 1)

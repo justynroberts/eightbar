@@ -59,6 +59,7 @@ EQ_RULES: dict[str, EQMove] = {
     "hat":     EQMove(400, 0, 0, 10000, 1.5, "High-pass hard -- hats have no business low; air on top."),
     "chords":  EQMove(180, 350, -2, 0, 0, "High-pass out of the bass; scoop the mud where chords pile up."),
     "pad":     EQMove(200, 400, -3, 12000, 1.0, "High-pass; scoop the low-mids -- a pad's job is width, not weight."),
+    "pulse":   EQMove(220, 350, -2, 9000, 1.5, "High-pass out of the bass; a touch of top so the rhythm reads through the pump."),
     "strings": EQMove(150, 350, -2, 10000, 1.0, "High-pass; gentle low-mid dip; air."),
     "keys":    EQMove(160, 350, -2, 0, 0, "High-pass out of the bass; dip the boxiness."),
     "piano":   EQMove(90, 300, -1.5, 0, 0, "Light high-pass; a small low-mid dip clears the mud."),
@@ -78,7 +79,7 @@ EQ_RULES: dict[str, EQMove] = {
 # sound of dance music, and it belongs to exactly these roles -- never the
 # drums (which the kick lives inside), never the transient leads.
 SIDECHAIN_ROLES: tuple[str, ...] = (
-    "bass", "sub", "808", "pad", "chords",
+    "bass", "sub", "808", "pulse", "pad", "chords",
 )
 
 # How hard each ducks, as a fraction. These are deliberately GENTLE -- a
@@ -87,9 +88,13 @@ SIDECHAIN_ROLES: tuple[str, ...] = (
 # least. Deeper than this and the whole mix sounds like it is pumping, which
 # is the "way too much sidechain" the user heard. Never drums, hats or perc:
 # the kick lives inside those and a transient does not pump.
+# The pulse pad is the rhythmic layer -- the pump is its whole point, so it
+# ducks hard like the bass. The big sustained pad exists for continuity; it
+# gets barely a whisper, because a deep duck on a held chord is the audible
+# lurch that made splitting these two apart necessary in the first place.
 SIDECHAIN_DEPTH: dict[str, float] = {
     "bass": 0.45, "sub": 0.5, "808": 0.5,
-    "pad": 0.4, "chords": 0.3,
+    "pulse": 0.5, "chords": 0.3, "pad": 0.15,
 }
 
 

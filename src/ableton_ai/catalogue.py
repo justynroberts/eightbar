@@ -45,6 +45,8 @@ ROLE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "chords": ("keys", "chord", "stab", "rhodes", "piano", "organ", "poly"),
     "pad": ("pad", "atmos", "ambient", "warm", "evolv", "texture", "drone",
             "swell", "choir", "string"),
+    "pulse": ("pulse", "pluck", "stab", "poly", "chord", "synth", "gate",
+              "rhythmic", "motion", "seq"),
     "lead": ("lead", "solo", "saw", "pluck", "synth", "arp", "melody"),
     "hook": ("lead", "pluck", "bell", "synth", "hook", "top"),
     "arp": ("arp", "pluck", "sequence", "seq", "rhythmic", "motion"),
@@ -114,6 +116,7 @@ FALLBACK_DEVICES: dict[str, str] = {
     "808": "Instruments/Operator",
     "chords": "Instruments/Wavetable",    # morphing keeps held chords alive
     "pad": "Instruments/Wavetable",
+    "pulse": "Instruments/Wavetable",     # a poly synth gated into a rhythm
     "lead": "Instruments/Wavetable",
     "hook": "Instruments/Wavetable",
     "arp": "Instruments/Wavetable",
@@ -139,6 +142,7 @@ ROLE_CATEGORIES: dict[str, tuple[str, ...]] = {
     "bass": ("Bass",),
     "sub": ("Bass",),
     "pad": ("Pad", "Ambient & Evolving", "Strings"),
+    "pulse": ("Synth Rhythmic", "Synth Keys", "Pad"),
     "chords": ("Synth Keys", "Piano & Keys"),
     "lead": ("Synth Lead", "Synth Keys"),
     "hook": ("Synth Lead", "Guitar & Plucked"),

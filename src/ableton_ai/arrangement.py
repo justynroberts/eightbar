@@ -18,7 +18,7 @@ BEATS_PER_BAR = 4.0
 # build and a drop actually land.
 ROLES = (
     "kick", "drums", "bass", "sub", "chords", "lead", "hook",
-    "pad", "arp", "fx", "riser", "impact", "vocal", "perc",
+    "pad", "pulse", "arp", "fx", "riser", "impact", "vocal", "perc",
     # Acoustic and orchestral roles. Without these, "write a string quartet"
     # or "a piano and cello cue" had to be forced through "chords" and "lead",
     # which chose synths and voiced them like synths.
@@ -52,7 +52,11 @@ ROLE_ALIASES: dict[str, str] = {
     "effects": "fx", "sfx": "fx", "atmos": "fx", "ambience": "fx",
     "rise": "riser", "sweep": "riser", "uplifter": "riser", "build": "riser",
     "impacts": "impact", "crash": "impact", "hit": "impact", "downlifter": "impact",
-    "pads": "pad", "strings": "pad", "atmosphere": "pad",
+    "pads": "pad", "atmosphere": "pad", "big_pad": "pad", "bigpad": "pad",
+    "sustained_pad": "pad", "warm_pad": "pad", "ambient_pad": "pad",
+    "pulse_pad": "pulse", "pulsepad": "pulse", "pulses": "pulse",
+    "rhythmic_pad": "pulse", "stab_pad": "pulse", "offbeat_pad": "pulse",
+    "pumping_pad": "pulse", "gate_pad": "pulse", "gated_pad": "pulse",
     "hooks": "hook", "vocal_chop": "hook",
     "leads": "lead",
 }
@@ -115,8 +119,9 @@ ROLE_FALLBACKS: dict[str, tuple[str, ...]] = {
     "hook": ("lead", "chords"),
     "lead": ("hook", "chords"),
     "arp": ("chords", "lead"),
-    "chords": ("pad", "arp"),
-    "pad": ("chords",),
+    "chords": ("pad", "pulse", "arp"),
+    "pad": ("chords", "pulse"),
+    "pulse": ("chords", "arp", "pad"),
     "perc": ("drums",),
     "kick": ("drums",),
 }
@@ -194,8 +199,8 @@ class Section:
 # Roles that sustain and so can "drop out" for the bar before a big lift --
 # the classic moment of air before a drop. Drums are handled separately.
 SUSTAINED_FOR_DROPOUT = (
-    "bass", "sub", "808", "chords", "pad", "keys", "strings", "arp", "lead",
-    "hook", "melody", "organ", "guitar",
+    "bass", "sub", "808", "chords", "pad", "pulse", "keys", "strings", "arp",
+    "lead", "hook", "melody", "organ", "guitar",
 )
 
 
@@ -220,7 +225,8 @@ TIER: dict[str, str] = {
     "kick": "foundation", "drums": "foundation", "bass": "foundation",
     "sub": "foundation", "808": "foundation",
     # core -- the harmonic bed that defines the song
-    "chords": "core", "pad": "core", "keys": "core", "piano": "core",
+    "chords": "core", "pad": "core", "pulse": "core", "keys": "core",
+    "piano": "core",
     "guitar": "core", "organ": "core", "strings": "core", "rhodes": "core",
     # topline -- the tune that carries the section
     "lead": "topline", "hook": "topline", "melody": "topline",
@@ -347,7 +353,7 @@ def intro_layers(sections: list["Section"], phrase_bars: int = 8) -> list[dict]:
     if intro is None or intro.bars < phrase_bars * 2:
         return []
     # Order roles from foundation upward; each enters a phrase later.
-    order = ["kick", "hat", "perc", "bass", "sub", "chords", "pad",
+    order = ["kick", "hat", "perc", "bass", "sub", "pad", "chords", "pulse",
              "arp", "lead", "hook", "melody"]
     present = [r for r in order if r in intro.roles]
     layers = []
