@@ -146,7 +146,11 @@ def check_part(part: Part) -> list[Finding]:
 
     # --- repetition -------------------------------------------------------
     signatures = _bar_signatures(part)
-    if len(signatures) >= 4:
+    # A kick is meant to be steady -- a four-on-the-floor identical every bar
+    # is the point of it, not a fault. Variation comes from the arrangement
+    # (phrase fills, the build), not from the loop. So the identical-bars
+    # check does not apply to the kick.
+    if len(signatures) >= 4 and part.role != "kick":
         distinct = len(set(signatures))
         if distinct == 1:
             found.append(Finding(
@@ -400,11 +404,19 @@ def against_references(parts: Sequence[Part], library) -> list[Finding]:
     return found
 
 
-def critique(parts: Iterable[Part], library=None) -> dict:
-    """Every measurable fault, worst first, with a score out of 100."""
+def critique(parts: Iterable[Part], library=None,
+             key_pcs: set[int] | None = None) -> dict:
+    """Every measurable fault, worst first, with a score out of 100.
+
+    `key_pcs`, when given, is the known key's pitch classes -- used for the
+    off-key check instead of detecting a consensus from the notes. Detection
+    can land on the relative major of a rootless or extended part and then
+    flag perfectly diatonic notes as dissonant, so a caller that knows the key
+    (build_track does) should pass it.
+    """
     parts = list(parts)
     findings = [f for p in parts for f in check_part(p)]
-    findings += check_ensemble(parts)
+    findings += check_ensemble(parts, key_pcs=key_pcs)
     if library is not None:
         findings += against_references(parts, library)
 

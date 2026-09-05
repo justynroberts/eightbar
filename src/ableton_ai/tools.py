@@ -1186,7 +1186,8 @@ class Toolbox:
         # surfaced as a problem to act on.
         critique = step("critique", lambda: self.tool_critique_music(
             track_indices=[i for n, i in made.items()
-                           if n not in ("Riser", "Impact", "Build", "Fills")]))
+                           if n not in ("Riser", "Impact", "Build", "Fills")],
+            key=key, scale=mode))
         if critique:
             highs = [f for f in critique.get("findings", [])
                      if f.get("severity") == "high"]
@@ -3445,6 +3446,7 @@ class Toolbox:
 
     def tool_critique_music(
         self, track_indices: list[int] | None = None, clip_index: int = 0,
+        key: str | None = None, scale: str | None = None,
     ) -> dict:
         """Measure what makes the current parts sound generated, and score them.
 
@@ -3487,9 +3489,18 @@ class Toolbox:
             raise ToolError(
                 f"no MIDI clip in slot {clip_index} has any notes to judge"
             )
+        # If the key is known, judge off-key notes against it rather than a
+        # detected consensus -- detection on a rootless/extended part can pick
+        # the relative major and flag diatonic notes as dissonant.
+        key_pcs = None
+        if key is not None:
+            root_pc = theory.note_to_pitch_class(key)
+            key_pcs = {(root_pc + i) % 12
+                       for i in theory.SCALES[theory.normalise_scale(scale or "minor")]}
         library = self._library()
         return critique.critique(
-            parts, library=library if library.references else None
+            parts, library=library if library.references else None,
+            key_pcs=key_pcs,
         )
 
     def tool_clear_arrangement(self, track_indices: list[int] | None = None) -> dict:
