@@ -1743,3 +1743,22 @@ def test_trance_progression_library_is_named_and_diatonic(box):
                   "key": "D", "scale": "minor", "degrees": "lydian_lift",
                   "bars": 6})
     assert r["chords"], r
+
+
+def test_build_picks_a_random_progression_from_the_genre_pool():
+    """Unspecified progression is drawn from the genre's pool; a seed repeats it."""
+    from fake_live import FakeBridge
+    from ableton_ai.tools import Toolbox
+
+    def build(seed, **kw):
+        return Toolbox(FakeBridge()).tool_build_track(
+            genre="trance", key="D", duration_seconds=90, seed=seed,
+            mix=False, master=False, placeholders=False, **kw)
+
+    picks = {build(s)["progression"] for s in range(8)}
+    assert len(picks) > 1, picks                      # it actually varies
+    pool = set(Toolbox(FakeBridge()).BUILD_RECIPES["trance"]["progressions"])
+    assert picks <= pool, picks                       # only from the pool
+    assert build(3)["progression"] == build(3)["progression"]   # seed repeats
+    # a named progression overrides the pool
+    assert build(1, progression="axis")["progression"] == "axis"

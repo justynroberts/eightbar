@@ -767,6 +767,12 @@ class Toolbox:
             # trance construction ruleset): a dedicated mono sub under the mid
             # bass, and ensemble strings doubling the chords with 7th/9th.
             "sub": True, "strings": True,
+            # When no progression is named, pick from the trance library so
+            # every build opens on a different, genre-true shape.
+            "progressions": ("minor_axis", "workhorse_1564", "sine_edm",
+                             "lydian_lift", "children", "dorian_lift",
+                             "step_down", "dark_turnaround", "trance_classic",
+                             "hands_up"),
         },
         "tech_house": {
             "tempo": 126, "scale": "minor", "template": "house",
@@ -862,10 +868,18 @@ class Toolbox:
 
         bpm = float(tempo or recipe["tempo"])
         mode = scale or recipe["scale"]
-        chords = progression or recipe["progression"]
+        # When the caller does not name a progression, pick one at random from
+        # the genre's pool so two builds of the same genre do not open on the
+        # same four chords. Seeded, so a given seed still reproduces exactly.
+        pool = recipe.get("progressions") or [recipe["progression"]]
+        chords_picked = (progression
+                         or random.Random(seed).choice(list(pool)))
+        chords = chords_picked
         report: dict[str, Any] = {
             "genre": key_name, "key": key, "scale": mode, "tempo": bpm,
-            "progression": chords, "steps": [], "problems": [],
+            "progression": chords,
+            "progression_pool": None if progression else list(pool),
+            "steps": [], "problems": [],
         }
 
         def step(label: str, fn):
