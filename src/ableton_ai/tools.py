@@ -68,6 +68,7 @@ _ROLE_HINTS: tuple[tuple[str, str], ...] = (
     ("kick", "kick"), ("sub", "sub"), ("bass", "bass"), ("hat", "drums"),
     ("drum", "drums"), ("perc", "perc"), ("clap", "drums"), ("snare", "drums"),
     ("chord", "chords"), ("arp", "arp"), ("lead", "lead"), ("hook", "hook"),
+    ("fill", "perc"), ("roll", "perc"),
     ("pulse", "pulse"), ("pad", "pad"),
     ("ris", "riser"), ("sweep", "riser"), ("impact", "impact"),
     ("crash", "impact"), ("stab", "chords"), ("pluck", "arp"),
@@ -1041,8 +1042,13 @@ class Toolbox:
             made = {name: by_name[name] for name, _ in layout if name in by_name}
             report["cleared_tracks"] = len(pre_existing)
 
+        # Tell ensure_instruments each track's real role instead of letting it
+        # guess from the name -- "Fills" matches no name hint and was defaulting
+        # to a lead Wavetable, so the perc fills track came out as a droning
+        # synth blip. The layout knows every role; use it.
+        role_by_index = {made[n]: r for n, r in layout if n in made}
         step("instruments", lambda: self.tool_ensure_instruments(
-            only_empty=True, seed=seed))
+            only_empty=True, roles=role_by_index, seed=seed))
 
         # A bare Drum Rack has no samples in it. Put the genre's kit on every
         # drum track explicitly rather than relying on the generic default.
