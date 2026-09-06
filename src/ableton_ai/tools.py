@@ -1047,8 +1047,14 @@ class Toolbox:
         # to a lead Wavetable, so the perc fills track came out as a droning
         # synth blip. The layout knows every role; use it.
         role_by_index = {made[n]: r for n, r in layout if n in made}
+        # Prefer designed, named presets scored by role AND genre over bare
+        # init patches -- a rack of "Wavetable" init saws on chords, pad, lead
+        # and hook is exactly why a build "sounds generic". The catalogue picks
+        # a real pad for the pad and a real lead for the lead; it falls back to
+        # a stock device only when nothing is scanned.
         step("instruments", lambda: self.tool_ensure_instruments(
-            only_empty=True, roles=role_by_index, seed=seed))
+            only_empty=True, roles=role_by_index, prefer_presets=True,
+            genre=key_name, seed=seed))
 
         # A bare Drum Rack has no samples in it. Put the genre's kit on every
         # drum track explicitly rather than relying on the generic default.
@@ -4449,6 +4455,7 @@ class Toolbox:
         only_empty: bool = True,
         roles: dict | None = None,
         prefer_presets: bool = False,
+        genre: str | None = None,
         seed: int | None = None,
     ) -> dict:
         """Give every MIDI track an instrument, so nothing is silent.
@@ -4483,7 +4490,7 @@ class Toolbox:
                     # role's default instrument if nothing matches.
                     try:
                         result = self.tool_pick_sound(
-                            track_index=index, role=role,
+                            track_index=index, role=role, genre=genre,
                             seed=None if seed is None else seed + index)
                         what = result.get("preset")
                     except ToolError:
