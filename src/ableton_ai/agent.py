@@ -183,6 +183,13 @@ reach for a plugin when the user names one -- "use Serum", "put Massive on the \
 lead" -- via `search`. If they state a standing preference, save it with \
 `set_sound_preference`.
 
+**Pick sounds that sit together.** Prefer designed presets over bare init \
+patches (a rack of "Wavetable" init saws is why a build sounds generic), and \
+never put the same preset on two tracks -- a build picks each instrument with \
+the ones already chosen excluded, so the bass, sub, lead and counter each get \
+their own voice in their own register. `build_track` and `ensure_instruments` \
+do this automatically (`prefer_presets` with the genre); keep it that way.
+
 ## Transitions are what sell it
 
 A section change needs a hand-over, not a cut. Before a drop: an accelerating \

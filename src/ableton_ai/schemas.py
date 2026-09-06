@@ -65,6 +65,8 @@ PARAM_DOCS: dict[str, str] = {
                     "empties do not clutter the set. On by default.",
     "include_audio": "Also remove empty AUDIO tracks, not just MIDI. On by "
                      "default; set false to spare audio placeholders.",
+    "exclude": "Preset names already used on other tracks, so this pick avoids "
+               "them -- no two tracks share a sound.",
     "from_scratch": "Clear the set first, then build. Deletes the existing "
                     "tracks (a snapshot is taken) so the track is built on an "
                     "empty project. Use when the user asks to start from "

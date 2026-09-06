@@ -4294,6 +4294,7 @@ class Toolbox:
         character: str | None = None,
         genre: str | None = None,
         seed: int | None = None,
+        exclude: list[str] | None = None,
     ) -> dict:
         """Load a designed preset that suits the role, rather than a raw device.
 
@@ -4304,8 +4305,17 @@ class Toolbox:
         `character` narrows it -- warm, bright, evolving, dark for pads;
         supersaw, bright, stab, soft for leads; reese, sub, analog, deep, acid
         for bass. Left out, the genre decides.
+
+        `exclude` is preset names already used elsewhere in the set, so no two
+        tracks land on the same sound -- the core of picking sounds that sit
+        together rather than doubling one preset across the ensemble.
         """
         role = arrangement.normalise_role(role or "")
+        avoid = {str(x).lower() for x in (exclude or [])}
+        # A sustained string/choir bed should not be a plucked pizzicato or a
+        # short staccato -- those read as a different instrument entirely.
+        demote = (("pizz", "pizzicato", "staccato", "spiccato", "marcato")
+                  if role in ("strings", "choir") else ())
 
         # The catalogue knows what is actually installed, including roles the
         # hardcoded table never had -- strings, choir, mallets, harp, brass --
@@ -4329,6 +4339,13 @@ class Toolbox:
                     rng.random() * 3 if seed is not None else 0)
             ordered = [e for _, e in sorted(
                 enumerate(candidates), key=rank, reverse=True)]
+            # Drop presets already used elsewhere, and push the demoted
+            # timbres (pizz/staccato for a string bed) to the back rather than
+            # out -- they are a last resort, not a match.
+            ordered = [e for e in ordered if e.display.lower() not in avoid]
+            if demote:
+                ordered.sort(key=lambda e: any(
+                    d in e.display.lower() for d in demote))
             for entry in ordered:
                 try:
                     match = self._browser_item(entry.path)
@@ -4367,11 +4384,16 @@ class Toolbox:
             if not loadable:
                 continue
 
-            # Best-first: an exact-ish name beats a loose keyword.
+            # Best-first: an exact-ish name beats a loose keyword. Skip presets
+            # already used elsewhere and the demoted timbres for a string bed.
+            def ok(name: str) -> bool:
+                low = name.lower()
+                return low not in avoid and not any(d in low for d in demote)
             for fragment in wanted:
                 needle = fragment.lower()
                 match = next(
-                    (i for i in loadable if needle in i["name"].lower()), None
+                    (i for i in loadable
+                     if needle in i["name"].lower() and ok(i["name"])), None
                 )
                 if match is None:
                     continue
@@ -4472,6 +4494,13 @@ class Toolbox:
         state = self.bridge.call("get_song")
         overrides = {int(k): str(v) for k, v in (roles or {}).items()}
 
+        # Track every preset chosen so far and forbid a repeat: two tracks on
+        # the same sound is the opposite of picking sounds that sit together.
+        # Drum roles are exempt -- a shared 909 kit across kick/drums/perc is
+        # correct, not a clash.
+        used: set[str] = set()
+        DRUMISH = {"kick", "drums", "perc", "snare", "hat"}
+
         loaded, skipped, failed = [], [], []
         for track in state.get("tracks", []):
             index = int(track["index"])
@@ -4491,8 +4520,11 @@ class Toolbox:
                     try:
                         result = self.tool_pick_sound(
                             track_index=index, role=role, genre=genre,
+                            exclude=None if role in DRUMISH else sorted(used),
                             seed=None if seed is None else seed + index)
                         what = result.get("preset")
+                        if what and role not in DRUMISH:
+                            used.add(str(what).lower())
                     except ToolError:
                         result = self.tool_load_sound(track_index=index, role=role)
                         what = result.get("path")
